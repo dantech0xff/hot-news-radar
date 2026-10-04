@@ -275,7 +275,7 @@ npx wrangler dev
 | `core/tech-relevance.js` | `TRUSTED_TECH_CATEGORIES`, `createTechRelevanceMiddleware()`, `scoreTechRelevance()` | Topic filter gating technology relevance, not a trust boundary |
 | `core/story-dedup.js` | `storySignature()`, `isSameStory()`, `excludeCoveredStories()`, `pickDistinctStories()` | Deterministic cross-source story dedup for radar scans |
 | `core/grouping.js` | `groupByCategory()` | Groups articles by category for structured prompts |
-| `sources/rss.js` | `RSSSource`, `createRSSSources()`, `cleanHTML()` | Zero-dep XML parsing; `maxResponseBytes` raises the 2 MiB response cap (at most 8 MiB) for feeds that embed full post text |
+| `sources/rss.js` | `RSSSource`, `createRSSSources()`, `cleanHTML()` | Zero-dep XML parsing; `maxResponseBytes` raises the 2 MiB response cap (at most 8 MiB) for feeds that embed full post text; `cleanHTML(html, { escapedMarkup })` also strips tags that arrive escaped (`&lt;p&gt;`) in article bodies |
 | `sources/html-scraper.js` | `HTMLScraperSource` | Regex-based HTML extraction |
 | `sources/hackernews.js` | `HackerNewsSource` | Algolia API, configurable minPoints |
 | `sources/reddit.js` | `RedditSource` | JSON API with subreddit + minUpvotes; Reddit returns 403 to unauthenticated `.json` requests (checked 2026-10-04), so `aiNewsSources()` reads Reddit through one RSS source (`top.rss`, no scores, links to the thread) |

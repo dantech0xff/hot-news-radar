@@ -64,3 +64,57 @@ test('an RSS item title and description decode entities', async () => {
   assert.equal(result.articles[0].title, "Meta’s chip & Shopify app's move 'now'");
   assert.equal(result.articles[0].content, 'We’re open-sourcing it … read more');
 });
+
+const REDDIT_BODY = '&lt;!-- SC_OFF --&gt;&lt;div class=&quot;md&quot;&gt;&lt;p&gt;It&amp;#39;s a &lt;strong&gt;test&lt;/strong&gt;&lt;/p&gt;&lt;/div&gt;&lt;!-- SC_ON --&gt;'
+  + ' &amp;#32; submitted by &amp;#32; &lt;a href=&quot;https://www.reddit.com/user/x&quot;&gt; /u/x &lt;/a&gt;'
+  + ' &lt;span&gt;&lt;a href=&quot;https://example.test/?a=1&amp;amp;b=2&quot;&gt;[link]&lt;/a&gt;&lt;/span&gt;';
+
+test('escaped HTML in a body loses its tags, comments, and attributes', () => {
+  assert.equal(cleanHTML(REDDIT_BODY, { escapedMarkup: true }), "It's a test submitted by /u/x [link]");
+  assert.equal(
+    cleanHTML('&lt;p&gt;The concept of &lt;strong&gt;RSI&lt;/strong&gt; dates back to &lt;a href=&#34;https://example.test/a?x=1&#34;&gt;I. J. Good&lt;/a&gt;&lt;br/&gt;&lt;img src=&#34;x.png&#34; /&gt;&lt;/p&gt;', { escapedMarkup: true }),
+    'The concept of RSI dates back to I. J. Good',
+  );
+});
+
+test('text that only looks like a tag stays in an escaped body', () => {
+  assert.equal(cleanHTML('&lt;p&gt;Use Vec&lt;T&gt; and List&lt;String&gt; for 1 &lt; 2&lt;/p&gt;', { escapedMarkup: true }), 'Use Vec<T> and List<String> for 1 < 2');
+});
+
+test('a body of real HTML keeps text that mentions an escaped tag', () => {
+  assert.equal(cleanHTML('<p>Use the <code>&lt;div&gt;</code> element</p>', { escapedMarkup: true }), 'Use the <div> element');
+});
+
+test('titles and other callers keep escaped markup as text by default', () => {
+  assert.equal(cleanHTML('Use &lt;div&gt; in Vec&lt;T&gt;'), 'Use <div> in Vec<T>');
+  assert.equal(cleanHTML(REDDIT_BODY).startsWith('<!-- SC_OFF --><div class="md">'), true);
+});
+
+test('an Atom type="html" entry and an RSS 2.0 description with escaped HTML give clean content', async () => {
+  const atom = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><title>Atom</title>'
+    + `<entry><title>Atom post</title><link href="https://example.test/atom"/><updated>2026-10-03T10:00:00+00:00</updated><media:thumbnail url="https://example.test/t.png"/><content type="html">${REDDIT_BODY}</content></entry></feed>`;
+  const rss = '<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>RSS</title>'
+    + '<item><title>RSS post</title><link>https://example.test/rss</link><pubDate>Sat, 03 Oct 2026 10:00:00 GMT</pubDate><media:content url="https://example.test/c.png" medium="image"/>'
+    + '<description>&lt;p&gt;The concept of &lt;strong&gt;RSI&lt;/strong&gt; dates back to &lt;a href=&#34;https://example.test/a&#34;&gt;I. J. Good&lt;/a&gt;&lt;/p&gt;</description></item></channel></rss>';
+  for (const [xml, expected] of [[atom, "It's a test submitted by /u/x [link]"], [rss, 'The concept of RSI dates back to I. J. Good']]) {
+    globalThis.fetch = async () => new Response(xml, { headers: { 'content-type': 'application/xml' } });
+    const source = new RSSSource({ id: 'escaped', name: 'Escaped', feedUrl: 'https://example.test/feed.xml' });
+
+    const result = await source.fetchWithDiagnostics();
+
+    assert.equal(result.diagnostic.status, 'success');
+    assert.equal(result.articles[0].content, expected);
+  }
+});
+
+test('an RSS body of real HTML that mentions an escaped tag keeps the mention', async () => {
+  const xml = '<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>RSS</title>'
+    + '<item><title>Tags</title><link>https://example.test/tags</link><pubDate>Sat, 03 Oct 2026 10:00:00 GMT</pubDate><media:content url="https://example.test/c.png" medium="image"/>'
+    + '<description><![CDATA[<p>Use the <code>&lt;div&gt;</code> element</p>]]></description></item></channel></rss>';
+  globalThis.fetch = async () => new Response(xml, { headers: { 'content-type': 'application/xml' } });
+  const source = new RSSSource({ id: 'cdata', name: 'CDATA', feedUrl: 'https://example.test/feed.xml' });
+
+  const result = await source.fetchWithDiagnostics();
+
+  assert.equal(result.articles[0].content, 'Use the <div> element');
+});

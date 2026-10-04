@@ -118,7 +118,7 @@ export class RSSSource extends SourcePlugin {
       id: resolvedUrl || `${this.id}:${title}`,
       title,
       url: resolvedUrl,
-      content: cleanHTML(rawContent).substring(0, 1000),
+      content: cleanHTML(rawContent, { escapedMarkup: true }).substring(0, 1000),
       source: this.name,
       category: this._config.category,
       imageUrl: imageUrl || undefined,
@@ -175,10 +175,32 @@ const NAMED_ENTITIES = Object.freeze({
   ndash: '–', mdash: '—', hellip: '…',
 });
 
-export function cleanHTML(html) {
-  return decodeEntities(html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&'))
-    .replace(/\s+/g, ' ')
-    .trim();
+// Tags that mark escaped HTML when they appear only after entities decode.
+// Names outside this list (Vec<T>, <String>) are text and stay.
+const ESCAPED_HTML_TAG = new RegExp(
+  '</?(?:a|abbr|b|blockquote|br|center|code|div|em|figcaption|figure|font|h[1-6]|hr|i|iframe|img|li|ol|p|picture|pre|small|source|span|strong|sub|sup|table|tbody|td|tfoot|th|thead|tr|u|ul|video)'
+  + '(?:\\s(?:[^<>"\']|"[^"]*"|\'[^\']*\')*)?/?>|<!--[\\s\\S]*?-->',
+  'gi',
+);
+
+/**
+ * Plain text of an HTML snippet or title, with entities decoded.
+ *
+ * `escapedMarkup` is for article bodies, where a feed may carry escaped HTML
+ * (Atom `type="html"`, RSS 2.0 descriptions): its tags are `&lt;p&gt;` in the
+ * XML text, so they only appear once entities decode. The tags are then
+ * removed too, but only when the input held no real tag, so a body of real
+ * HTML that mentions `&lt;div&gt;` as text keeps it.
+ *
+ * @param {string} html
+ * @param {{ escapedMarkup?: boolean }} [options]
+ * @returns {string}
+ */
+export function cleanHTML(html, { escapedMarkup = false } = {}) {
+  const withoutTags = html.replace(/<[^>]+>/g, '');
+  let text = decodeEntities(withoutTags.replace(/&amp;/g, '&'));
+  if (escapedMarkup && withoutTags === html) text = text.replace(ESCAPED_HTML_TAG, ' ');
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**
