@@ -24,6 +24,14 @@ test('channel engines gate tech relevance before scoring and semantic dedup', ()
   );
 });
 
+test('radar channels read the last 48 hours of source posts while digest channels keep 24', () => {
+  const dependencies = { cache: new MemoryCache() };
+  const base = { sources: [], output: new RecordingOutput(), prompt: {}, maxArticles: 12 };
+
+  assert.equal(buildEngine({ ...base, id: 'radar', mode: 'drip' }, dependencies).options.sourceWindowHours, 48);
+  assert.equal(buildEngine({ ...base, id: 'digest', mode: 'digest' }, dependencies).options.sourceWindowHours, 24);
+});
+
 function recordingEngine() {
   const calls = [];
   return {

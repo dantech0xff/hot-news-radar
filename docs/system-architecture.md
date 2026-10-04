@@ -42,7 +42,7 @@ Traefik also answers requests sent straight to the VPS address, so the app's own
 1. Fetch all sources in bounded batches.
 2. Collect source diagnostics and classify failures separately from empty feeds.
 3. Deduplicate against delivery state and legacy compatibility data.
-4. For radar scans (drip mode only), exclude articles covering a story already delivered to the channel in the current or previous publishing day.
+4. For radar scans (drip mode only), exclude articles covering a story already delivered to the channel in the current publishing day or the two before it: the radar reads source posts from the last 48 hours, and the lookback is that window plus one day.
 5. Apply middlewares: a technology-relevance gate, then scoring and semantic dedup. The dashboard app puts its `notBefore` cutover filter ahead of the tech gate.
 6. Summarize with AI.
 7. Claim one output at a time in configured topology order.

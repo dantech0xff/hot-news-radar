@@ -521,8 +521,8 @@ export class ContentRadar {
       return { scanned: false, reason: claim.reason, sourceHealth: claim.batch?.sourceHealth ?? null };
     }
     let prepared = null;
-    const coverageDays = [publishingDay, previousPublishingDay(publishingDay)];
     try {
+      const coverageDays = coveragePublishingDays(publishingDay, this.options.sourceWindowHours);
       const covered = coveredArticles(await machine.listDeliveriesForPublishingDays(coverageDays));
       // Excluding covered stories before middlewares keeps look-alikes out of the scoring cut.
       prepared = await this._prepareArticles({
@@ -1271,6 +1271,18 @@ function withSelection(result, selection) {
 /** Calendar arithmetic on the publishing-day string stays correct across DST changes. */
 function previousPublishingDay(publishingDay) {
   return new Date(Date.parse(`${publishingDay}T00:00:00.000Z`) - DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Publishing days whose deliveries can still cover a story the source window returns: the
+ * window plus one day, so a 24-hour window checks today and yesterday and a 48-hour one
+ * adds the day before.
+ */
+function coveragePublishingDays(publishingDay, windowHours) {
+  const count = Math.ceil(positiveNumber(windowHours, 'sourceWindowHours') / 24) + 1;
+  const days = [publishingDay];
+  while (days.length < count) days.push(previousPublishingDay(days[days.length - 1]));
+  return days;
 }
 
 function coveredArticles(deliveries) {

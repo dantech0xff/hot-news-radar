@@ -39,7 +39,7 @@ Actively scan and deliver curated technology content that is:
 5. `preview` is read-only and must not mutate delivery state.
 6. Operator recovery must be idempotent and versioned.
 7. Drip mode must preserve queue state across days and re-scan sources for new content whenever the batch has open slots, the channel's daily limit is not reached, and a scan is due; a failed scan must back off without blocking items already queued.
-8. Every collected article must pass a technology-relevance gate — a topic filter, not a trust boundary — before AI summarization; radar scans must also skip articles covering a story already delivered to the channel in the current or previous publishing day.
+8. Every collected article must pass a technology-relevance gate — a topic filter, not a trust boundary — before AI summarization; radar scans read posts from the last 48 hours and must also skip articles covering a story already delivered to the channel in the current publishing day or the two before it.
 9. The dashboard app must let operators add, edit, enable/disable, and delete Telegram channels without a redeploy: sources, AI provider and model, prompt (language, style, audience, custom system prompt that keeps the safety rules), cron and timezone, mode, and limits.
 10. Channel secrets (bot token, chat ID, AI key, AI Gateway token) are entered in the dashboard, encrypted at rest with the master key, and write-only: the dashboard only shows whether a value is set.
 11. Operators can see channel status, queue, run history with per-source health, and unresolved items, and can run now, preview, pause, resume, and apply the recovery actions the state machine allows.

@@ -54,3 +54,36 @@ test('a failing covered-story observer is logged and never changes delivery', as
   assert.equal(warnings.mock.callCount(), 1);
   assert.equal(JSON.stringify(warnings.mock.calls[0].arguments).includes('abc123'), false);
 });
+
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+/** Posts a story, then scans two publishing days later when only a rewrite of it is on offer. */
+async function rewriteTwoDaysLater({ sourceWindowHours } = {}) {
+  const clock = mutableClock('2026-10-01T10:00:00.000Z');
+  const source = new RecordingSource([story('gpt-6', 'OpenAI ships GPT-6 for developers')]);
+  const output = new RecordingOutput();
+  const engine = new ContentRadar()
+    .addSource(source)
+    .useAI(new RecordingAI('hook'))
+    .addOutput(output)
+    .useDeliveryStore(new MemoryDeliveryStore({ durable: true }))
+    .configure({ channelId: 'telegram-main', maxRetries: 0, clock, ...(sourceWindowHours && { sourceWindowHours }) });
+  assert.equal((await engine.runDrip({ batchSize: 2 })).status, 'success');
+  source.articles = [story('gpt-6-recap', 'Developers get GPT-6 from OpenAI today')];
+  clock.advance(2 * DAY_MS);
+  return { second: await engine.runDrip({ batchSize: 2 }), output };
+}
+
+test('a 48-hour source window also skips stories delivered two publishing days ago', async () => {
+  const { second, output } = await rewriteTwoDaysLater({ sourceWindowHours: 48 });
+
+  assert.equal(second.stats.selection.uncovered, 0);
+  assert.equal(output.calls.length, 1);
+});
+
+test('the default 24-hour window covers only today and yesterday', async () => {
+  const { second, output } = await rewriteTwoDaysLater();
+
+  assert.equal(second.stats.selection.uncovered, 1);
+  assert.equal(output.calls.length, 2);
+});

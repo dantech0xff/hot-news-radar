@@ -197,7 +197,7 @@ The engine pipeline in `engine.js` (`run()` for digest mode, `runDrip()` for rad
 1. Resolve or create the delivery record for this request (dedup against in-flight/completed deliveries)
 2. _fetchAllDetailed() — batched fetch from all sources (with retry)
 3. _dedup() — filter via the delivery ledger and legacy compatibility data
-4. (drip scans only) exclude articles covering a story already delivered in the current/previous publishing day
+4. (drip scans only) exclude articles covering a story already delivered in the current or the two previous publishing days (the radar's 48-hour source window plus one day)
 5. middlewares — tech relevance gate → scoring → semantic dedup → any custom `.use()` transforms (the app prepends its notBefore filter)
 6. ai.summarize() — with audience context, grouped articles (throws if no AI is configured)
 7. output.send() — one output at a time, in configured topology order; each result is committed durably before the next output starts

@@ -14,6 +14,9 @@ import {
 } from '../core/index.js';
 
 const TRIGGER_TYPES = new Set(['scheduled', 'manual', 'force']);
+// A radar scan reads posts from the last two days: a quiet weekend publishes fewer posts per
+// day than one-post-per-run drains, and the delivery ledger already stops any repost.
+const RADAR_SOURCE_WINDOW_HOURS = 48;
 const CRON_LIMITS = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
 const DAY_OF_WEEK_FIELD = 4;
 const DELIVERY_RECOVERY_ACTIONS = Object.freeze({
@@ -255,6 +258,7 @@ export function buildEngine(ch, cacheOrDependencies, additionalDependencies = {}
   engine.configure({
     maxArticlesPerSource: ch.maxArticlesPerSource || 3,
     concurrency: ch.concurrency || 5,
+    ...(ch.mode === 'drip' && { sourceWindowHours: RADAR_SOURCE_WINDOW_HOURS }),
     ...ch.prompt,
     channelId: ch.id,
     timezone: ch.timezone || 'UTC',
