@@ -26,7 +26,7 @@ export const FAKE = Object.freeze({
   githubId: 'github-provider-0001',
   githubProviderName: 'Dokploy-2026-10-01-g7i5b9',
   githubOwner: 'dantech0xff',
-  githubRepository: 'daily-news-broadcast',
+  githubRepository: 'hot-news-radar',
   githubPrivateKey: 'github-app-private-key-SECRET-0005',
   githubWebhookSecret: 'github-app-webhook-secret-SECRET-0006',
   githubClientSecret: 'github-app-client-secret-SECRET-0007',

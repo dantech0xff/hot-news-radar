@@ -24,7 +24,7 @@ export const NAMES = Object.freeze({
 });
 
 export const DEFAULTS = Object.freeze({
-  gitUrl: 'https://github.com/dantech0xff/daily-news-broadcast.git',
+  gitUrl: 'https://github.com/dantech0xff/hot-news-radar.git',
   gitBranch: 'master',
   waitMinutes: 30,
 });

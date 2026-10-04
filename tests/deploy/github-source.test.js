@@ -47,7 +47,7 @@ test('switching the live app from the public Git URL to the GitHub App tracks ma
   const dry = await runScript([...MASTER, '--dry-run'], { platform, env: githubEnv() });
   assert.equal(dry.code, 0, dry.output);
   assert.deepEqual(dry.calls.filter(isMutating), [], 'a dry run sends no change');
-  assert.match(dry.stdout, /#1 POST dokploy application\.saveGithubProvider \{"applicationId":"[^"]+","githubId":"github-provider-0001","owner":"dantech0xff","repository":"daily-news-broadcast","branch":"master","buildPath":"\/","triggerType":"push","watchPaths":null,"enableSubmodules":false\}/);
+  assert.match(dry.stdout, /#1 POST dokploy application\.saveGithubProvider \{"applicationId":"[^"]+","githubId":"github-provider-0001","owner":"dantech0xff","repository":"hot-news-radar","branch":"master","buildPath":"\/","triggerType":"push","watchPaths":null,"enableSubmodules":false\}/);
   assert.match(dry.stdout, /#2 POST dokploy application\.deploy/);
   assert.match(dry.stdout, /2 change\(s\) planned; nothing was sent/);
   assert.equal(mainApp(platform).sourceType, 'git');
@@ -61,7 +61,7 @@ test('switching the live app from the public Git URL to the GitHub App tracks ma
     applicationId: before.applicationId,
     githubId: FAKE.githubId,
     owner: 'dantech0xff',
-    repository: 'daily-news-broadcast',
+    repository: 'hot-news-radar',
     branch: 'master',
     buildPath: '/',
     triggerType: 'push',
@@ -70,13 +70,13 @@ test('switching the live app from the public Git URL to the GitHub App tracks ma
   });
   const after = mainApp(platform);
   assert.deepEqual(sourceOf(after), {
-    sourceType: 'github', githubId: FAKE.githubId, owner: 'dantech0xff', repository: 'daily-news-broadcast',
+    sourceType: 'github', githubId: FAKE.githubId, owner: 'dantech0xff', repository: 'hot-news-radar',
     branch: 'master', buildPath: '/', triggerType: 'push', autoDeploy: true,
   });
   assert.equal(after.env, before.env);
   assert.deepEqual(after.mounts, before.mounts);
   assert.match(result.stdout, /Deploying radar\.example\.test \(branch master, GitHub App source\)/);
-  assert.match(result.stdout, /\[update\] Source → GitHub dantech0xff\/daily-news-broadcast branch master through the provider "Dokploy-2026-10-01-g7i5b9" \(was: git, branch master\)/);
+  assert.match(result.stdout, /\[update\] Source → GitHub dantech0xff\/hot-news-radar branch master through the provider "Dokploy-2026-10-01-g7i5b9" \(was: git, branch master\)/);
   assert.match(result.stdout, /\[ok\] Auto deploy is on: Dokploy deploys every push to master/);
   assertNoSecrets(dry);
   assertNoSecrets(result);
@@ -84,7 +84,7 @@ test('switching the live app from the public Git URL to the GitHub App tracks ma
   const again = await runScript(MASTER, { platform, env: githubEnv() });
   assert.equal(again.code, 0, again.output);
   assert.deepEqual(mutations(again.calls), ['application.deploy'], 'a re-run only redeploys, as in git mode');
-  assert.match(again.stdout, /\[ok\] Source: GitHub dantech0xff\/daily-news-broadcast branch master through the provider "Dokploy-2026-10-01-g7i5b9"\./);
+  assert.match(again.stdout, /\[ok\] Source: GitHub dantech0xff\/hot-news-radar branch master through the provider "Dokploy-2026-10-01-g7i5b9"\./);
   assertNoSecrets(again);
 });
 
@@ -134,7 +134,7 @@ test('a failed GitHub build never shows the clone token in the printed log', asy
   const platform = createFakePlatform({
     failDeploymentOf: 'content-radar',
     deploymentLog: [
-      `Cloning https://oauth2:${token}@github.com/dantech0xff/daily-news-broadcast.git`,
+      `Cloning https://oauth2:${token}@github.com/dantech0xff/hot-news-radar.git`,
       `remote: Invalid username or token ${token}`,
       'Error: the build failed',
     ].join('\n'),
@@ -142,7 +142,7 @@ test('a failed GitHub build never shows the clone token in the printed log', asy
   platform.cloudflare.accessApps.push(webhookBypassApp());
   const result = await runScript(MASTER, { platform, env: githubEnv(), randomBytes: () => Buffer.alloc(32, 5) });
   assert.equal(result.code, 1);
-  assert.match(result.stderr, /Cloning https:\/\/\[REDACTED\]@github\.com\/dantech0xff\/daily-news-broadcast\.git/);
+  assert.match(result.stderr, /Cloning https:\/\/\[REDACTED\]@github\.com\/dantech0xff\/hot-news-radar\.git/);
   assert.match(result.stderr, /remote: Invalid username or token \[REDACTED\]/);
   assert.match(result.stderr, /Error: the build failed/);
   assert.equal(result.output.includes(token), false);
@@ -195,7 +195,7 @@ test('a first deploy in GitHub mode sets the GitHub source instead of the Git UR
   const real = await runScript(MASTER, { platform, env: githubEnv() });
   assert.equal(real.code, 0, real.output);
   assert.deepEqual(sourceOf(mainApp(platform)), {
-    sourceType: 'github', githubId: FAKE.githubId, owner: 'dantech0xff', repository: 'daily-news-broadcast',
+    sourceType: 'github', githubId: FAKE.githubId, owner: 'dantech0xff', repository: 'hot-news-radar',
     branch: 'master', buildPath: '/', triggerType: 'push', autoDeploy: true,
   });
   const save = real.calls.findIndex(call => call.target === 'application.saveGithubProvider');
@@ -212,7 +212,7 @@ test('the provider is the only one or the one DOKPLOY_GITHUB_PROVIDER names; non
   platform.cloudflare.accessApps.push(webhookBypassApp());
   const single = await runScript(['preflight'], { platform, env: githubEnv() });
   assert.equal(single.code, 0, single.output);
-  assert.match(single.stdout, /\[ok\] GitHub provider "Dokploy-2026-10-01-g7i5b9" \(githubId github-provider-0001\) can see dantech0xff\/daily-news-broadcast\./);
+  assert.match(single.stdout, /\[ok\] GitHub provider "Dokploy-2026-10-01-g7i5b9" \(githubId github-provider-0001\) can see dantech0xff\/hot-news-radar\./);
   assert.match(single.stdout, /every procedure and field the deploy uses \(18 procedures\)/);
 
   platform.dokploy.githubProviders = [githubProvider({ githubId: 'github-old', name: 'Dokploy-2026-09-01-old', repositories: [] }), githubProvider()];
@@ -250,22 +250,22 @@ test('the provider is the only one or the one DOKPLOY_GITHUB_PROVIDER names; non
 test('a repository the provider cannot see blocks the deploy; a differently cased URL is saved as GitHub spells it', async () => {
   // The same name under another owner, and another repository of the same owner: both owner and name must match.
   const platform = createFakePlatform({
-    githubProviders: [githubProvider({ repositories: ['someone-else/daily-news-broadcast', 'dantech0xff/another-repository'] })],
+    githubProviders: [githubProvider({ repositories: ['someone-else/hot-news-radar', 'dantech0xff/another-repository'] })],
   });
   platform.cloudflare.accessApps.push(webhookBypassApp());
   const hidden = await runScript(MASTER, { platform, env: githubEnv() });
   assert.equal(hidden.code, 1);
-  assert.match(hidden.stderr, /\[blocker\] The GitHub provider "Dokploy-2026-10-01-g7i5b9" cannot see dantech0xff\/daily-news-broadcast \(it sees 2 repositories\)\. Give its GitHub App access to that repository/);
+  assert.match(hidden.stderr, /\[blocker\] The GitHub provider "Dokploy-2026-10-01-g7i5b9" cannot see dantech0xff\/hot-news-radar \(it sees 2 repositories\)\. Give its GitHub App access to that repository/);
   assert.match(hidden.stderr, /The deploy did not start/);
   assert.deepEqual(hidden.calls.filter(isMutating), []);
   assertNoSecrets(hidden);
 
   // Dokploy matches push webhooks on the exact owner and repository text, so GitHub's spelling is saved.
-  platform.dokploy.githubProviders = [githubProvider({ repositories: ['DanTech0xFF/Daily-News-Broadcast'] })];
-  const cased = await runScript([...MASTER, '--git-url', 'https://github.com/dantech0xff/daily-news-broadcast'], { platform, env: githubEnv() });
+  platform.dokploy.githubProviders = [githubProvider({ repositories: ['DanTech0xFF/Hot-News-Radar'] })];
+  const cased = await runScript([...MASTER, '--git-url', 'https://github.com/dantech0xff/hot-news-radar'], { platform, env: githubEnv() });
   assert.equal(cased.code, 0, cased.output);
   const [save] = cased.calls.filter(call => call.target === 'application.saveGithubProvider');
-  assert.deepEqual([save.body.owner, save.body.repository], ['DanTech0xFF', 'Daily-News-Broadcast']);
+  assert.deepEqual([save.body.owner, save.body.repository], ['DanTech0xFF', 'Hot-News-Radar']);
 });
 
 test('preflight warns, without blocking, when GitHub push webhooks would stop at Access', async () => {
@@ -376,18 +376,18 @@ test('the GitHub procedures and the autoDeploy field are checked only in GitHub 
 test('config: DOKPLOY_SOURCE and DOKPLOY_GITHUB_PROVIDER are validated without echoing values', () => {
   const git = readDeployConfig(deployEnv(), { command: 'deploy', flags: {} });
   assert.deepEqual(git.config.git, {
-    url: 'https://github.com/dantech0xff/daily-news-broadcast.git', branch: 'master',
+    url: 'https://github.com/dantech0xff/hot-news-radar.git', branch: 'master',
     source: 'git', githubProvider: null, owner: null, repository: null,
   });
 
   const github = readDeployConfig(
     deployEnv({ DOKPLOY_SOURCE: 'GitHub', DOKPLOY_GITHUB_PROVIDER: ' Dokploy-2026-10-01-g7i5b9 ' }),
-    { command: 'deploy', flags: { 'git-branch': 'master', 'git-url': 'https://github.com/DanTech0xFF/Daily-News-Broadcast/' } },
+    { command: 'deploy', flags: { 'git-branch': 'master', 'git-url': 'https://github.com/DanTech0xFF/Hot-News-Radar/' } },
   );
   assert.deepEqual(github.problems, []);
   assert.deepEqual(github.config.git, {
-    url: 'https://github.com/DanTech0xFF/Daily-News-Broadcast/', branch: 'master',
-    source: 'github', githubProvider: 'Dokploy-2026-10-01-g7i5b9', owner: 'DanTech0xFF', repository: 'Daily-News-Broadcast',
+    url: 'https://github.com/DanTech0xFF/Hot-News-Radar/', branch: 'master',
+    source: 'github', githubProvider: 'Dokploy-2026-10-01-g7i5b9', owner: 'DanTech0xFF', repository: 'Hot-News-Radar',
   });
 
   const invalid = readDeployConfig(deployEnv({ DOKPLOY_SOURCE: 'value-that-is-not-a-source', DOKPLOY_GITHUB_PROVIDER: 'two\nlines' }), { command: 'deploy', flags: {} });
@@ -396,7 +396,7 @@ test('config: DOKPLOY_SOURCE and DOKPLOY_GITHUB_PROVIDER are validated without e
   assert.match(text, /DOKPLOY_GITHUB_PROVIDER must be the name of a Dokploy GitHub provider/);
   assert.equal(text.includes('value-that-is-not-a-source'), false);
 
-  for (const url of ['https://gitlab.com/dantech0xff/daily-news-broadcast.git', 'https://github.com/dantech0xff', 'https://github.com/a/b/c']) {
+  for (const url of ['https://gitlab.com/dantech0xff/hot-news-radar.git', 'https://github.com/dantech0xff', 'https://github.com/a/b/c']) {
     const { problems } = readDeployConfig(deployEnv({ DOKPLOY_SOURCE: 'github' }), { command: 'deploy', flags: { 'git-url': url } });
     assert.deepEqual(problems, ['DOKPLOY_SOURCE=github needs --git-url to be a GitHub repository URL such as https://github.com/<owner>/<repository>.git.'], url);
   }

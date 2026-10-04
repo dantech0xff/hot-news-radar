@@ -78,7 +78,7 @@ test('deploy creates everything in a safe order, and a second run creates nothin
 
   // Dokploy: source, build, volume, and one HTTPS Traefik domain for the hostname; never a published port.
   const main = platform.dokploy.applications.get(mainId);
-  assert.equal(main.customGitUrl, 'https://github.com/dantech0xff/daily-news-broadcast.git');
+  assert.equal(main.customGitUrl, 'https://github.com/dantech0xff/hot-news-radar.git');
   assert.equal(main.customGitBranch, 'master');
   assert.equal(main.buildType, 'dockerfile');
   assert.equal(main.dockerfile, 'Dockerfile');
@@ -498,7 +498,7 @@ test('a failed build prints the redacted deployment log and stops before the dom
   const platform = createFakePlatform({
     failDeploymentOf: 'content-radar',
     deploymentLog: [
-      'Cloning https://github.com/dantech0xff/daily-news-broadcast.git',
+      'Cloning https://github.com/dantech0xff/hot-news-radar.git',
       `curl -H "x-api-key: ${FAKE.dokployApiKey}" http://localhost:3000`,
       `APP_MASTER_KEY=${leakedKey}`,
       `Authorization: Bearer ${FAKE.cfApiToken}`,
