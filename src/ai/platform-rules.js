@@ -14,22 +14,6 @@ export const PLATFORM_RULES = {
 - Tối đa 4000 ký tự
 - Giữ nhịp viết tự nhiên; đừng biến mỗi mục thành cùng một template`,
 
-  x: `FORMAT RULES:
-- Plain text only — no markdown, no HTML, no *bold* or _italic_
-- Each tweet max 280 characters
-- Thread format: number as 1/n, 2/n... separated by blank lines
-- Add 2-3 relevant hashtags to the first tweet only
-- Punchy, direct tone, but avoid generic hype
-- Max 10 tweets per thread`,
-
-  threads: `FORMAT RULES:
-- Plain text only — no markdown, no HTML
-- Max 500 characters total
-- Casual, conversational tone
-- Emoji OK but max 3
-- No hashtags required
-- Sound like a useful share, not a press blurb`,
-
   facebook: `FORMAT RULES:
 - Plain text only — no markdown, no HTML
 - Optimal length: under 500 characters for engagement
@@ -62,42 +46,6 @@ export const HOOK_RULES = {
 Agent Lee gom Workers, KV, D1 và R2 vào cùng một flow triển khai AI agents. Cách tiếp cận này giúp team giảm phần glue code khi xây dựng trên Cloudflare stack.
 
 https://blog.cloudflare.com/introducing-agent-lee/
----`,
-  },
-
-  x: {
-    format: `RULES:
-- Plain text only — NO markdown, NO *bold*, NO _italic_
-- Max 280 characters total (including URL)
-- Vietnglish natural tone, mix English tech terms
-- Include article URL
-- End with 2-3 relevant hashtags
-- Punchy, one key insight only
-- End with "— Dan Tech Content Radar"
-- Avoid performative controversy or one-sided framing unless the article strongly supports it`,
-    examples: `EXAMPLE TONE (learn style, DON'T copy):
-
----
-Cloudflare kéo AI agents về Workers stack với Agent Lee: KV/D1/R2 chung flow, ít glue code hơn. Team IT nên nhìn vào cost, ops và lock-in. blog.cloudflare.com/agent-lee/ — Dan Tech Content Radar #cloudflare #ai
----`,
-  },
-
-  threads: {
-    format: `RULES:
-- Plain text only — NO markdown, NO *bold*
-- Max 500 characters
-- Vietnglish casual, like sharing with IT peers
-- Include article URL on its own line
-- End with "— Dan Tech Content Radar"
-- Emoji: 0-2, natural placement only
-- Avoid sounding like a launch announcement`,
-    examples: `EXAMPLE TONE (learn style, DON'T copy):
-
----
-Cloudflare vừa ra Agent Lee. Cái đáng để ý là họ đang gom runtime, storage và edge vào một flow cho AI agents, thay vì để team tự wire từng mảnh. Với IT teams, đây là bài toán tradeoff giữa tốc độ triển khai, vận hành và lock-in.
-
-blog.cloudflare.com/agent-lee/
-— Dan Tech Content Radar
 ---`,
   },
 

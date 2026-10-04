@@ -5,8 +5,7 @@
 
 import { bigTechBlogs, aiNewsSources, aiDeepDiveSources } from '../presets/index.js';
 import { createAI } from '../ai/create-ai.js';
-import { TelegramOutput, XOutput, FacebookOutput, ThreadsOutput } from '../outputs/index.js';
-import { KVTokenStore } from '../utils/token-store.js';
+import { TelegramOutput, FacebookOutput } from '../outputs/index.js';
 import { validateCronExpression } from './runner.js';
 
 /** Map provider name → env var for API key */
@@ -122,35 +121,6 @@ export function defineChannels(env) {
     });
   }
 
-  // --- X (Twitter) — uncomment when OAuth 2.0 credentials configured ---
-  // Requires: X_CLIENT_ID, X_DESTINATION_ID, TOKEN_ENCRYPTION_KEY, plus token stored in KV
-  if (env.X_CLIENT_ID && env.TOKEN_ENCRYPTION_KEY && env.NEWS_CACHE) {
-    if (!String(env.X_DESTINATION_ID ?? '').trim()) {
-      throw new Error('Missing X destination identity: X_DESTINATION_ID');
-    }
-    const kvStore = new KVTokenStore(env.NEWS_CACHE, env.TOKEN_ENCRYPTION_KEY);
-    channels.push({
-      id: 'x-tech-vn',
-      sources: bigTechBlogs(),
-      ai: makeAI(env),
-      output: new XOutput({
-        kvTokenStore: kvStore,
-        channelId: 'x-tech-vn',
-        destinationId: env.X_DESTINATION_ID,
-      }),
-      prompt: { language: 'vi', style: 'digest', audience: IT_AUDIENCE, platform: 'x' },
-      mode: 'drip',
-      schedule: e(env, 'X_CRON_SCHEDULE', '0 0,6,12 * * *'),
-      timezone: e(env, 'X_CRON_TIMEZONE', e(env, 'CRON_TIMEZONE', 'UTC')),
-      batchSize: eInt(env, 'X_BATCH_SIZE', 3),
-      delayMs: 0,
-      dailyLimit: 10,
-      maxArticles: 10,
-      maxArticlesPerSource: 3,
-      concurrency: 5,
-    });
-  }
-
   // --- Facebook Page — uncomment when Meta app review approved ---
   // Requires: FB_PAGE_TOKEN, FB_PAGE_ID
   if (env.FB_PAGE_TOKEN && env.FB_PAGE_ID) {
@@ -167,28 +137,6 @@ export function defineChannels(env) {
       delayMs: 0,
       dailyLimit: 10,
       maxArticles: 10,
-      maxArticlesPerSource: 3,
-      concurrency: 5,
-    });
-  }
-
-  // --- Threads — uncomment when token stored in KV ---
-  // Requires: THREADS_USER_ID, TOKEN_ENCRYPTION_KEY, plus token in KV
-  if (env.THREADS_USER_ID && env.TOKEN_ENCRYPTION_KEY && env.NEWS_CACHE) {
-    const kvStore = new KVTokenStore(env.NEWS_CACHE, env.TOKEN_ENCRYPTION_KEY);
-    channels.push({
-      id: 'threads-dev-vn',
-      sources: bigTechBlogs(),
-      ai: makeAI(env),
-      output: new ThreadsOutput({ userId: env.THREADS_USER_ID, kvTokenStore: kvStore, channelId: 'threads-dev-vn' }),
-      prompt: { language: 'vi', style: 'digest', audience: IT_AUDIENCE, platform: 'threads' },
-      mode: 'drip',
-      schedule: e(env, 'THREADS_CRON_SCHEDULE', '0 2,8 * * *'),
-      timezone: e(env, 'THREADS_CRON_TIMEZONE', e(env, 'CRON_TIMEZONE', 'UTC')),
-      batchSize: 2,
-      delayMs: 0,
-      dailyLimit: 8,
-      maxArticles: 8,
       maxArticlesPerSource: 3,
       concurrency: 5,
     });

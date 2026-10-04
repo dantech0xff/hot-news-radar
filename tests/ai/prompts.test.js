@@ -35,8 +35,8 @@ test('Telegram hook prompt requires a short title, summary, and source link', ()
   assert.doesNotMatch(prompt.system, /Dan Tech Content Radar/);
 });
 
-test('X, Threads, and Facebook hook prompts sign posts with the Content Radar brand', () => {
-  for (const platform of ['x', 'threads', 'facebook']) {
+test('Facebook hook prompts sign posts with the Content Radar brand', () => {
+  for (const platform of ['facebook']) {
     const prompt = buildHookPrompt(article, { platform, style: 'digest' });
 
     assert.match(prompt.system, /End with "— Dan Tech Content Radar"/, platform);
@@ -111,7 +111,7 @@ test('bundled AI providers send the concise hook prompt for Telegram drip delive
 // across time zones. Update a digest only for an intentional prompt change.
 const SNAPSHOT_AUDIENCE = 'nguoi lam IT Viet Nam: developers, engineers, product, data, security, operations, technical leaders';
 const SNAPSHOT_STYLES = ['digest', 'bullet', 'hot_take', 'thread', 'newsletter', 'weekly', 'mustread', 'unknown-style'];
-const SNAPSHOT_PLATFORMS = ['telegram', 'x', 'threads', 'facebook', 'unknown-platform'];
+const SNAPSHOT_PLATFORMS = ['telegram', 'facebook', 'unknown-platform'];
 const SNAPSHOT_RANDOM_VALUES = [0, 0.5, 0.99];
 
 const richArticle = {
@@ -172,7 +172,7 @@ function deliveryPromptCases(t) {
   const options = { platform: 'telegram', style: 'digest', audience: SNAPSHOT_AUDIENCE };
   return [
     buildPromptForDelivery([article], { ...options, deliveryMode: 'drip' }),
-    buildPromptForDelivery([article], { ...options, platform: 'x', deliveryMode: 'drip' }),
+    buildPromptForDelivery([article], { ...options, platform: 'facebook', deliveryMode: 'drip' }),
     buildPromptForDelivery(groupedArticles, { ...options, deliveryMode: 'drip' }),
     buildPromptForDelivery([article], { ...options, deliveryMode: 'digest' }),
     buildPromptForDelivery(groupedArticles, options),
@@ -213,17 +213,17 @@ async function providerRequestCases(t) {
 
 test('default Vietnamese digest prompts are byte-identical to the locked output', () => {
   const digest = promptDigest(digestPromptCases());
-  assert.equal(digest, 'f879f5aef1050255f9adb39dca39598fc1524e9829e09c4b74cb6b5f2b56bb53', `digest prompt snapshot changed: ${digest}`);
+  assert.equal(digest, '720a92c7ec4b11ca5bee0524d917fad984e144bda062718a6b8e6a91cd3bdf2c', `digest prompt snapshot changed: ${digest}`);
 });
 
 test('default Vietnamese hook prompts are byte-identical to the locked output', t => {
   const digest = promptDigest(hookPromptCases(t));
-  assert.equal(digest, '2f1e7814512351d8dac9ed81201cb7d84504fcf90c20c7e82d1acc560cefbae4', `hook prompt snapshot changed: ${digest}`);
+  assert.equal(digest, '62daec69b045ee8d4aca47c8971a02c190eda97b97c8b7c7c7a5e2ed8c2b9aa4', `hook prompt snapshot changed: ${digest}`);
 });
 
 test('default delivery prompt selection is byte-identical to the locked output', t => {
   const digest = promptDigest(deliveryPromptCases(t));
-  assert.equal(digest, 'f75d8ebe9ea4fc3c4e7ae92c6abda7bc51fecb07bd90034acf7f807d90664eee', `delivery prompt snapshot changed: ${digest}`);
+  assert.equal(digest, 'dc86bec207ccc53ffb52c5b163a98bc4bfaa5bfd111cc2845fb92010af95b56e', `delivery prompt snapshot changed: ${digest}`);
 });
 
 test('bundled providers send byte-identical default Vietnamese requests', async t => {
@@ -278,7 +278,7 @@ test('English hook prompts keep the Telegram caption contract without Vietnamese
 });
 
 test('every hook platform has English rules that keep the platform constraints', () => {
-  for (const platform of ['x', 'threads', 'facebook']) {
+  for (const platform of ['facebook']) {
     const prompt = buildHookPrompt(article, { language: 'en', platform, style: 'hot_take' });
     assert.match(prompt.system, /End with "— Dan Tech Content Radar"/, platform);
     assert.doesNotMatch(prompt.system, /Vietnglish/, platform);

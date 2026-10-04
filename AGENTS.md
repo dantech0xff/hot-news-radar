@@ -9,7 +9,7 @@
 Two runtimes share the engine:
 
 - **Dashboard app** (`src/app/` + `web/`) — one Node process: React dashboard, API, channel scheduler, and SQLite. Telegram channels, sources, prompts, AI providers, and encrypted credentials are configured in the dashboard without a redeploy. It is the primary engine, deployed on Dokploy and served by Dokploy's Traefik behind Cloudflare Access; the production cutover happened on 2026-10-03 (`docs/deployment.md`).
-- **Node CLI** (`src/adapters/node.js`) — channels from environment variables. Telegram and Facebook activate from their variables. X and Threads exist, but their token store (`src/utils/token-store.js`) needs a Cloudflare KV binding that no longer exists, so they cannot be activated until a new store is written.
+- **Node CLI** (`src/adapters/node.js`) — channels from environment variables. Telegram and Facebook activate from their variables; X and Threads support was removed on 2026-10-04.
 
 The previous production runtime, the Cloudflare Worker `news-engine`, was retired and deleted on 2026-10-04; there is no Worker fallback.
 

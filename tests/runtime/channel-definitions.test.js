@@ -58,15 +58,6 @@ test('official AI feed configs remain isolated across preset instances', () => {
   assert.equal(newsOpenAI._config.feedUrl, 'https://openai.com/blog/rss.xml');
 });
 
-test('X channel fails closed without a stable authenticated destination identity', () => {
-  assert.throws(() => defineChannels({
-    X_CLIENT_ID: 'client',
-    TOKEN_ENCRYPTION_KEY: 'encryption-key',
-    NEWS_CACHE: {},
-    ANTHROPIC_API_KEY: 'ai-key',
-  }), /X_DESTINATION_ID/);
-});
-
 test('channel validation rejects duplicate IDs, invalid cron, and invalid timezones', () => {
   assert.throws(() => validateChannels([validChannel(), validChannel()]), /duplicate/i);
   assert.throws(() => validateChannels([validChannel({ schedule: '75 9 * * *' })]), /cron/i);

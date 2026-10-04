@@ -9,9 +9,7 @@ import {
   WebhookOutput,
 } from '../../src/outputs/channels.js';
 import { FacebookOutput } from '../../src/outputs/facebook.js';
-import { ThreadsOutput } from '../../src/outputs/threads.js';
 import { TelegramOutput } from '../../src/outputs/telegram.js';
-import { XOutput } from '../../src/outputs/x.js';
 import {
   assertCanonicalResult,
   jsonResponse,
@@ -28,8 +26,6 @@ test('built-in outputs expose stable redacted destination delivery keys', () => 
     [new WebhookOutput({ id: 'custom', name: 'Custom', url: 'https://private.test/raw-secret' }), 'raw-secret'],
     [new EmailOutput({ provider: 'resend', apiKey: 'token', from: 'from@test.dev', to: 'private@test.dev' }), 'private@test.dev'],
     [new MarkdownFileOutput({ outputDir: '/private/news', filenamePattern: 'secret-{date}.md' }), '/private/news'],
-    [new XOutput({ accessToken: 'token', channelId: 'x-private', destinationId: 'x-account-private' }), 'x-account-private'],
-    [new ThreadsOutput({ accessToken: 'token', userId: 'threads-private', channelId: 'threads-channel' }), 'threads-private'],
     [new FacebookOutput({ pageToken: 'token', pageId: 'facebook-private' }), 'facebook-private'],
   ];
 
@@ -54,13 +50,6 @@ test('built-in outputs expose stable redacted destination delivery keys', () => 
     new FacebookOutput({ pageToken: 'rotated-one', pageId: 'same-page' }).deliveryKey,
     new FacebookOutput({ pageToken: 'rotated-two', pageId: 'same-page' }).deliveryKey,
   );
-});
-
-test('X delivery topology requires a non-secret authenticated account identity', () => {
-  assert.throws(() => new XOutput({
-    accessToken: 'token',
-    channelId: 'logical-channel-only',
-  }), /destinationId is required/i);
 });
 
 test('Discord stops after the first non-success and preserves prior message IDs', async () => {
@@ -124,82 +113,6 @@ test('Discord first-step 401 is definitive and does not attempt later parts', as
   assertCanonicalResult(result, 'definitive_failure', 'manual');
   assert.equal(transport.calls.length, 1);
   assert.doesNotMatch(JSON.stringify(result), /super-secret-value/);
-});
-
-test('X stops a thread after failure and classifies prior mutation as ambiguous', async () => {
-  const transport = sequenceFetch([
-    jsonResponse(201, { data: { id: 'tweet-1' } }),
-    jsonResponse(503, { title: 'Unavailable', detail: 'retry later' }),
-    jsonResponse(201, { data: { id: 'tweet-3' } }),
-  ]);
-  const output = new XOutput({
-    accessToken: 'x-secret',
-    channelId: 'x-channel',
-    destinationId: 'x-account-private',
-    fetch: transport.fetch,
-    sleep: noDelay,
-  });
-
-  const result = await output.send('1/3 first\n\n2/3 second\n\n3/3 third');
-
-  assertCanonicalResult(result, 'ambiguous', 'manual');
-  assert.equal(result.messageId, 'tweet-1');
-  assert.deepEqual(result.meta.successfulMessageIds, ['tweet-1']);
-  assert.deepEqual(result.meta.partialMutation, {
-    successfulSteps: 1,
-    completedSteps: 1,
-    totalSteps: 3,
-    failedStep: 2,
-    messageIds: ['tweet-1'],
-  });
-  assert.equal(transport.calls.length, 2);
-});
-
-test('Threads publish failure reports the created container and stops', async () => {
-  const transport = sequenceFetch([
-    jsonResponse(200, { id: 'container-1' }),
-    jsonResponse(400, { error: { code: 100, message: 'publish rejected' } }),
-    jsonResponse(200, { id: 'unexpected' }),
-  ]);
-  const output = new ThreadsOutput({
-    accessToken: 'threads-secret',
-    userId: 'threads-user',
-    channelId: 'threads-channel',
-    fetch: transport.fetch,
-  });
-
-  const result = await output.send('hello');
-
-  assertCanonicalResult(result, 'ambiguous', 'manual');
-  assert.equal(result.messageId, 'container-1');
-  assert.deepEqual(result.meta.successfulMessageIds, ['container-1']);
-  assert.deepEqual(result.meta.partialMutation, {
-    successfulSteps: 1,
-    completedSteps: 1,
-    totalSteps: 2,
-    failedStep: 2,
-    messageIds: ['container-1'],
-  });
-  assert.equal(transport.calls.length, 2);
-});
-
-test('Threads create 429 remains definitive with automatic retry timing', async () => {
-  const transport = sequenceFetch([
-    jsonResponse(429, { error: { code: 4, message: 'rate limited' } }, { 'Retry-After': '3' }),
-  ]);
-  const output = new ThreadsOutput({
-    accessToken: 'threads-secret',
-    userId: 'threads-user',
-    fetch: transport.fetch,
-    now: () => Date.parse('2026-07-20T10:00:00.000Z'),
-  });
-
-  const result = await output.send('hello');
-
-  assertCanonicalResult(result, 'definitive_failure', 'automatic');
-  assert.equal(result.meta.retryAfterMs, 3000);
-  assert.equal(result.meta.nextAttemptAt, '2026-07-20T10:00:03.000Z');
-  assert.equal(transport.calls.length, 1);
 });
 
 test('single-step HTTP outputs use the same classification matrix', async () => {
@@ -280,36 +193,4 @@ test('HTTP classification matrix distinguishes rejection, throttling, and uncert
     }
     if (scenario.providerCode) assert.equal(result.meta.providerCode, scenario.providerCode);
   }
-});
-
-test('expected-response outputs treat missing mutation IDs as ambiguous and stop', async () => {
-  const xTransport = sequenceFetch([
-    jsonResponse(201, { data: {} }),
-    jsonResponse(201, { data: { id: 'unexpected' } }),
-  ]);
-  const x = new XOutput({
-    accessToken: 'x-secret',
-    channelId: 'x-channel',
-    destinationId: 'x-account-private',
-    fetch: xTransport.fetch,
-    sleep: noDelay,
-  });
-  const xResult = await x.send('1/2 first\n\n2/2 second');
-  assertCanonicalResult(xResult, 'ambiguous', 'manual');
-  assert.equal(xResult.meta.providerCode, 'invalid_response');
-  assert.equal(xTransport.calls.length, 1);
-
-  const threadsTransport = sequenceFetch([
-    jsonResponse(200, {}),
-    jsonResponse(200, { id: 'unexpected' }),
-  ]);
-  const threads = new ThreadsOutput({
-    accessToken: 'threads-secret',
-    userId: 'threads-user',
-    fetch: threadsTransport.fetch,
-  });
-  const threadsResult = await threads.send('hello');
-  assertCanonicalResult(threadsResult, 'ambiguous', 'manual');
-  assert.equal(threadsResult.meta.providerCode, 'invalid_response');
-  assert.equal(threadsTransport.calls.length, 1);
 });

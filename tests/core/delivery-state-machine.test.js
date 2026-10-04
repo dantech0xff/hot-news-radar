@@ -657,7 +657,7 @@ test('recent delivery lookup includes forced drips and stays channel-local', asy
   const { store, machine, outputs } = await prepared();
   const other = new DeliveryStateMachine({
     store,
-    channelId: 'x-tech-vn',
+    channelId: 'other-channel',
     clock: () => new Date('2026-07-20T00:00:00.000Z'),
   });
   await machine.prepareDelivery({

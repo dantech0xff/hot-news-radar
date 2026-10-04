@@ -228,42 +228,6 @@ https://blog.cloudflare.com/introducing-agent-lee/
 ---`,
   },
 
-  x: {
-    format: `RULES:
-- Plain text only — NO markdown, NO *bold*, NO _italic_
-- Max 280 characters total (including URL)
-- Natural English tone; keep technical terms as written
-- Include article URL
-- End with 2-3 relevant hashtags
-- Punchy, one key insight only
-- End with "— Dan Tech Content Radar"
-- Avoid performative controversy or one-sided framing unless the article strongly supports it`,
-    examples: `EXAMPLE TONE (learn style, DON'T copy):
-
----
-Cloudflare brings AI agents into the Workers stack with Agent Lee: KV/D1/R2 in one flow, less glue code. IT teams should weigh cost, ops and lock-in. blog.cloudflare.com/agent-lee/ — Dan Tech Content Radar #cloudflare #ai
----`,
-  },
-
-  threads: {
-    format: `RULES:
-- Plain text only — NO markdown, NO *bold*
-- Max 500 characters
-- Casual English, like sharing with IT peers
-- Include article URL on its own line
-- End with "— Dan Tech Content Radar"
-- Emoji: 0-2, natural placement only
-- Avoid sounding like a launch announcement`,
-    examples: `EXAMPLE TONE (learn style, DON'T copy):
-
----
-Cloudflare just shipped Agent Lee. The interesting part is that runtime, storage and edge now come as one flow for AI agents instead of pieces each team wires up. For IT teams it is a tradeoff between delivery speed, operations and lock-in.
-
-blog.cloudflare.com/agent-lee/
-— Dan Tech Content Radar
----`,
-  },
-
   facebook: {
     format: `RULES:
 - Plain text only — NO markdown
