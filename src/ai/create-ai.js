@@ -1,6 +1,6 @@
 /**
  * Shared AI factory — single source of truth for creating AI plugins
- * Used by both Node.js and Cloudflare adapters
+ * Used by the Node CLI and the dashboard app
  */
 
 import { ClaudeAI } from './claude.js';
