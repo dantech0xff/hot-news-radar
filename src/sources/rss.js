@@ -168,13 +168,36 @@ function extractAttr(xml, tag, attr) {
   return m ? m[1] : '';
 }
 
+// Named entities that feeds use besides &amp;, which cleanHTML decodes first.
+const NAMED_ENTITIES = Object.freeze({
+  lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  ndash: '–', mdash: '—', hellip: '…',
+});
+
 export function cleanHTML(html) {
-  return html
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+  return decodeEntities(html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&'))
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Decode named entities from NAMED_ENTITIES and numeric references
+ * (&#8217; and &#x27;). A reference that is unknown, or that names a control or
+ * surrogate code point, stays as written.
+ */
+function decodeEntities(text) {
+  return text.replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|([a-z]+));/gi, (match, decimal, hex, name) => {
+    if (name !== undefined) return NAMED_ENTITIES[name] ?? match;
+    const codePoint = decimal !== undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex, 16);
+    return isTextCodePoint(codePoint) ? String.fromCodePoint(codePoint) : match;
+  });
+}
+
+function isTextCodePoint(codePoint) {
+  return codePoint === 9 || codePoint === 10 || codePoint === 13
+    || (codePoint >= 0x20 && codePoint < 0x7F)
+    || (codePoint >= 0xA0 && codePoint <= 0x10FFFF && !(codePoint >= 0xD800 && codePoint <= 0xDFFF));
 }
 
 function extractImageUrl(xml, rawContent) {
