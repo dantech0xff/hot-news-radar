@@ -118,3 +118,36 @@ test('an RSS body of real HTML that mentions an escaped tag keeps the mention', 
 
   assert.equal(result.articles[0].content, 'Use the <div> element');
 });
+
+function rssFeedWithDescription(description) {
+  return '<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>RSS</title>'
+    + '<item><title>Post</title><link>https://example.test/post</link><pubDate>Sat, 03 Oct 2026 10:00:00 GMT</pubDate>'
+    + `<media:content url="https://example.test/c.png" medium="image"/><description><![CDATA[${description}]]></description></item></channel></rss>`;
+}
+
+async function fetchContent(config, description) {
+  globalThis.fetch = async () => new Response(rssFeedWithDescription(description), { headers: { 'content-type': 'application/xml' } });
+  const result = await new RSSSource({ id: 'trailer', name: 'Trailer', feedUrl: 'https://example.test/feed.xml', ...config }).fetchWithDiagnostics();
+  assert.equal(result.diagnostic.status, 'success');
+  return result.articles[0].content;
+}
+
+test('a content trailer is removed from the end of the body before the 1000-character cap', async () => {
+  const trailer = /\s*Read more at Example\s*$/;
+  const body = 'a'.repeat(995);
+
+  assert.equal(await fetchContent({ contentTrailer: trailer }, `<p>${body} Read more at Example</p>`), body);
+  assert.equal((await fetchContent({}, `<p>${body} Read more at Example</p>`)).length, 1000);
+});
+
+test('a content trailer only counts at the end of the body', async () => {
+  const trailer = /\s*Read more at Example\s*$/;
+
+  assert.equal(await fetchContent({ contentTrailer: trailer }, '<p>Read more at Example is a good site. Read more at Example</p>'), 'Read more at Example is a good site.');
+  assert.equal(await fetchContent({ contentTrailer: trailer }, '<p>Read more at Example for details</p>'), 'Read more at Example for details');
+  assert.equal(await fetchContent({ contentTrailer: trailer }, '<p>Read more at Example</p>'), '');
+});
+
+test('entities in the text of an escaped body decode too', () => {
+  assert.equal(cleanHTML('&lt;p&gt;Q&amp;amp;A, R&amp;amp;D and It&amp;#39;s &amp;ldquo;fine&amp;rdquo;&lt;/p&gt;', { escapedMarkup: true }), 'Q&A, R&D and It\'s “fine”');
+});

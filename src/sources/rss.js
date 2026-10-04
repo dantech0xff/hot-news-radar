@@ -28,6 +28,7 @@ export class RSSSource extends SourcePlugin {
    * @param {string} [config.category]
    * @param {string} [config.baseUrl] - Base URL để resolve relative links
    * @param {number} [config.maxResponseBytes] - Response size cap for feeds that embed full post text (default 2 MiB, at most 8 MiB)
+   * @param {RegExp} [config.contentTrailer] - Boilerplate that ends every article body; the pattern must match the end of the text and is removed from `content`
    */
   constructor(config) {
     super();
@@ -96,6 +97,13 @@ export class RSSSource extends SourcePlugin {
     return atomEntries.map(item => this._parseItem(item, 'atom'));
   }
 
+  /** Plain text of an article body, without the source's trailer, capped at 1000 characters. */
+  _bodyText(rawContent) {
+    const text = cleanHTML(rawContent, { escapedMarkup: true });
+    const { contentTrailer } = this._config;
+    return (contentTrailer ? text.replace(contentTrailer, '').trim() : text).substring(0, 1000);
+  }
+
   _parseItem(xml, format) {
     const title = cleanHTML(extractTag(xml, 'title'));
     const url = format === 'atom'
@@ -118,7 +126,7 @@ export class RSSSource extends SourcePlugin {
       id: resolvedUrl || `${this.id}:${title}`,
       title,
       url: resolvedUrl,
-      content: cleanHTML(rawContent, { escapedMarkup: true }).substring(0, 1000),
+      content: this._bodyText(rawContent),
       source: this.name,
       category: this._config.category,
       imageUrl: imageUrl || undefined,
@@ -198,9 +206,15 @@ const ESCAPED_HTML_TAG = new RegExp(
  */
 export function cleanHTML(html, { escapedMarkup = false } = {}) {
   const withoutTags = html.replace(/<[^>]+>/g, '');
-  let text = decodeEntities(withoutTags.replace(/&amp;/g, '&'));
-  if (escapedMarkup && withoutTags === html) text = text.replace(ESCAPED_HTML_TAG, ' ');
+  let text = decode(withoutTags);
+  // The text of escaped HTML carries one more level of entities (&amp;amp; in the XML).
+  if (escapedMarkup && withoutTags === html) text = decode(text.replace(ESCAPED_HTML_TAG, ' '));
   return text.replace(/\s+/g, ' ').trim();
+}
+
+/** &amp; first, so a doubly escaped reference (&amp;#39;) decodes like a single one. */
+function decode(text) {
+  return decodeEntities(text.replace(/&amp;/g, '&'));
 }
 
 /**

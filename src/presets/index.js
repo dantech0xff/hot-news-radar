@@ -24,6 +24,9 @@ function createOfficialAIFeedConfigs() {
 // response cap (about 2.6 and 3.6 MiB in 2026), so they ask for the ceiling.
 const FULL_TEXT_FEED_MAX_BYTES = MAX_SOURCE_RESPONSE_BODY_CEILING_BYTES;
 
+// Reddit ends every RSS body with "submitted by /u/<user> to r/<subreddit> [link] [comments]".
+const REDDIT_FOOTER = /\s*submitted by\s+\/u\/\S+(?:\s+to\s+r\/\S+)?(?:\s+\[link\])?(?:\s+\[comments\])?\s*$/i;
+
 // ============================================
 // Big Tech Engineering Blogs (12 sources)
 // ============================================
@@ -88,7 +91,7 @@ export function aiNewsSources() {
       { id: 'ieee-spectrum-ai', name: 'IEEE Spectrum AI', feedUrl: 'https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss', icon: '⚡', category: 'AI News' },
       // Reddit answers unauthenticated .json requests with 403, so both AI subreddits are
       // read through one RSS request (top posts of the last day; the feed has no scores).
-      { id: 'reddit-ai', name: 'r/LocalLLaMA + r/artificial', feedUrl: 'https://www.reddit.com/r/LocalLLaMA+artificial/top.rss?t=day&limit=25', icon: '🔴', category: 'Community' },
+      { id: 'reddit-ai', name: 'r/LocalLLaMA + r/artificial', feedUrl: 'https://www.reddit.com/r/LocalLLaMA+artificial/top.rss?t=day&limit=25', icon: '🔴', category: 'Community', contentTrailer: REDDIT_FOOTER },
     ]),
     new HackerNewsSource({ query: 'AI LLM GPT OpenAI Anthropic', minPoints: 80 }),
   ];
