@@ -93,7 +93,8 @@ export function aiNewsSources() {
       // read through one RSS request (top posts of the last day; the feed has no scores).
       { id: 'reddit-ai', name: 'r/LocalLLaMA + r/artificial', feedUrl: 'https://www.reddit.com/r/LocalLLaMA+artificial/top.rss?t=day&limit=25', icon: '🔴', category: 'Community', contentTrailer: REDDIT_FOOTER },
     ]),
-    new HackerNewsSource({ query: 'AI LLM GPT OpenAI Anthropic', minPoints: 80 }),
+    // matchAny: with Algolia's default, a story must contain all five words, so nothing ever matched.
+    new HackerNewsSource({ query: 'AI LLM GPT OpenAI Anthropic', minPoints: 80, matchAny: true }),
   ];
 }
 

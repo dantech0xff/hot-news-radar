@@ -20,6 +20,7 @@ export class HackerNewsSource extends SourcePlugin {
   /**
    * @param {Object} [config]
    * @param {string} [config.query]      - Search query (e.g. 'rust', 'kubernetes')
+   * @param {boolean} [config.matchAny=false] - Accept stories that match any word of `query` instead of every word
    * @param {string} [config.filter]     - 'front_page' | 'show_hn' | 'ask_hn' | null
    * @param {number} [config.minPoints=50] - Minimum points threshold
    */
@@ -31,9 +32,11 @@ export class HackerNewsSource extends SourcePlugin {
   get id() { return `hackernews${this._config.query ? `:${this._config.query}` : ''}`; }
   get name() { return 'Hacker News'; }
   get sourceKey() {
+    const { query, filter, minPoints, matchAny } = this._config;
     return JSON.stringify([
-      'hackernews', this.id, this._config.query ?? '',
-      this._config.filter ?? '', this._config.minPoints,
+      'hackernews', this.id, query ?? '', filter ?? '', minPoints,
+      // Appended only when set, so the keys of sources that do not use it stay as they were.
+      ...(matchAny ? ['match-any'] : []),
     ]);
   }
   get icon() { return '🟠'; }
@@ -47,22 +50,25 @@ export class HackerNewsSource extends SourcePlugin {
   async fetch(options = {}) {
     return runDiagnosedFetch(this, options, async () => {
       const { limit = 10, since } = options;
-      const { query, filter, minPoints } = this._config;
+      const { query, filter, minPoints, matchAny } = this._config;
 
       let url;
       if (query) {
-        url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=${limit * 2}`;
+        // Newest first, like a feed: relevance order keeps returning the same older stories.
+        url = `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=${limit * 2}`;
+        // Algolia requires every query word to match; marking them optional makes one word enough.
+        if (matchAny) url += `&optionalWords=${encodeURIComponent(query.split(/\s+/).filter(Boolean).join(','))}`;
       } else if (filter === 'front_page') {
         url = `https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=${limit * 2}`;
       } else {
         url = `https://hn.algolia.com/api/v1/search?tags=story&hitsPerPage=${limit * 2}`;
       }
 
-      // Add date filter
-      if (since) {
-        const timestamp = Math.floor(since.getTime() / 1000);
-        url += `&numericFilters=created_at_i>${timestamp}`;
-      }
+      // Filter on the server: the page holds only a few hits, so filtering them by points
+      // afterwards would leave almost nothing.
+      const numericFilters = [`points>=${minPoints}`];
+      if (since) numericFilters.push(`created_at_i>${Math.floor(since.getTime() / 1000)}`);
+      url += `&numericFilters=${numericFilters.join(',')}`;
 
       const response = await fetch(url, { signal: options.signal });
       if (!response.ok) {
