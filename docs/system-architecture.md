@@ -4,20 +4,20 @@
 
 Content Radar is a composable delivery engine that scans technology content and posts it to social channels. Sources, AI providers, outputs, and caches are plugins. Delivery correctness depends on a durable state machine and a durable store, not on best-effort cache writes.
 
-Three runtimes share the engine:
+Two runtimes share the engine:
 
 | Runtime | Entry point | Channel configuration | Delivery store | Role |
 |---|---|---|---|---|
-| Dashboard app | `src/app/server.js` | SQLite (`app_channels`), edited in the dashboard | `SQLiteDeliveryStore` on `node:sqlite`, one file in `DATA_DIR` | Target primary engine on Dokploy; cutover pending |
-| Cloudflare Worker | `src/adapters/cloudflare.js` | `defineChannels()` from Wrangler vars | `SQLiteDeliveryStore` in one Durable Object per channel | Current production; paused at cutover, kept for rollback |
+| Dashboard app | `src/app/server.js` | SQLite (`app_channels`), edited in the dashboard | `SQLiteDeliveryStore` on `node:sqlite`, one file in `DATA_DIR` | Production engine on Dokploy since the 2026-10-03 cutover |
 | Node CLI | `src/adapters/node.js` | `defineChannels()` from the environment | `LocalFileDeliveryStore` | Manual runs, cron daemon, preview, local recovery |
+
+The previous production runtime, the Cloudflare Worker `news-engine`, was retired and deleted on 2026-10-04 (`docs/deployment.md`).
 
 ## Topology
 
 ```text
 Dashboard app ─┐
 Node CLI ──────┴─> runChannels() / buildEngine()  (src/channels/runner.js)
-Cloudflare Worker ─> ChannelDeliveryCoordinator (Durable Object) builds its engine
                      │
                      ▼
                ContentRadar -> DeliveryStateMachine -> delivery store -> output plugins
@@ -53,19 +53,15 @@ The pipeline never claims exactly-once delivery. It provides bounded, operator-a
 
 ## Delivery State Model
 
-### Cloudflare
-
-Cloudflare delivery uses one SQLite-backed Durable Object per channel:
-
-- `ChannelDeliveryCoordinator` owns request acceptance and recovery
-- `SQLiteDeliveryStore` persists requests, deliveries, attempts, outputs, batches, reservations, maintenance rows, and operator actions in physical per-domain tables
-- alarms are created only after accepted/claimed durable work exists, preserve an earlier wakeup, and repair stalled deadlines without authorizing a second live attempt
-- request and operator mutations are idempotent and versioned
-- `news_schema_migrations` records additive application migrations; schema v6 migrates legacy generic rows, materializes hot query fields, and adds exact indexes for retention, status, queue, and repair-alarm queries
-
 ### Dashboard App
 
-The app runs the same `SQLiteDeliveryStore` class, unchanged, on Node: `createNodeSqlStorage()` (`src/app/db/node-sql-storage.js`) gives a `node:sqlite` connection the `sql.exec()` cursor and `transactionSync()` surface of Durable Object storage. `transactionSync()` runs `BEGIN IMMEDIATE … COMMIT` and nests with savepoints. The delivery store creates and migrates its own schema (v6 and `news_schema_migrations`), so both runtimes share one schema.
+The app persists delivery state with `SQLiteDeliveryStore` (`src/core/sqlite-delivery-store.js`):
+
+- requests, deliveries, attempts, outputs, batches, reservations, maintenance rows, and operator actions live in physical per-domain tables (see State Tables)
+- request and operator mutations are idempotent and versioned
+- the store creates and migrates its own schema; `news_schema_migrations` is its additive migration ledger, and the later migrations moved legacy generic rows into the domain tables, materialized hot query fields, and added exact indexes for retention, status, and queue queries
+
+The store was written against the SQL storage API of a Cloudflare Durable Object, the retired Worker's runtime. On Node, `createNodeSqlStorage()` (`src/app/db/node-sql-storage.js`) gives a `node:sqlite` connection that same surface: the `sql.exec()` cursor and `transactionSync()`, which runs `BEGIN IMMEDIATE … COMMIT` and nests with savepoints.
 
 ### Local Node CLI
 
@@ -86,7 +82,7 @@ The CLI uses `LocalFileDeliveryStore`:
 | Table | Purpose |
 |---|---|
 | `channel_state` | Per-channel pause and mutation lease |
-| `requests` | Accepted trigger/operator requests |
+| `requests` | Accepted operator retry requests |
 | `deliveries` | High-level delivery lifecycle |
 | `attempts` | Generation and output attempts |
 | `delivery_outputs` | Per-output result state |
@@ -94,15 +90,14 @@ The CLI uses `LocalFileDeliveryStore`:
 | `delivery_reservations` | Digest request reservation and recovery |
 | `day_batches` | Drip queue state and refill tracking |
 | `batch_items` | Drip queue item order |
-| `maintenance_outbox` | Legacy compatibility and token-maintenance replay |
+| `maintenance_outbox` | Legacy compatibility cache mirror (`seen:` and digest keys) and its replay |
 | `operator_actions` | Idempotent operator audit records |
 | `legacy_seen_compat` / `legacy_digest_compat` | Read-only legacy dedup compatibility |
-| `coordinator_meta` | Immutable channel identity and durable last-request pointer |
-| `canary_state` / `migration_state` | Canary evidence and legacy-import commit marker |
+| `coordinator_meta` / `canary_state` / `migration_state` | Written only by the retired Worker's coordinator; the schema still creates them, and nothing writes them now |
 | `retention_state` | Once-per-day compaction marker |
 | `news_schema_migrations` | Additive SQLite migration ledger |
 
-Known runtime domains map to their own physical SQLite tables. `delivery_records` remains as a bounded compatibility table for migrating older generic rows and for non-domain test records; normal coordinator hot paths do not scan it. Store queries allowlisted materialized fields, cap individual pages at 1,000 rows, and use table-specific state/deadline/request/retention indexes. Aggregate status counts indexed state groups and reads only its requested page; the latest-batch summary is an indexed SQL aggregate rather than a capped item scan.
+Known runtime domains map to their own physical SQLite tables. `delivery_records` remains as a bounded compatibility table for migrating older generic rows and for non-domain test records; normal hot paths do not scan it. Store queries allowlisted materialized fields, cap individual pages at 1,000 rows, and use table-specific state/deadline/request/retention indexes. Aggregate status counts indexed state groups and reads only its requested page; the latest-batch summary is an indexed SQL aggregate rather than a capped item scan.
 
 ## Retention And Idempotency
 
@@ -153,11 +148,11 @@ Migrations (`src/app/db/app-migrations.js`) are append-only and run in one trans
 - Prompt: language `vi` or `en`, a built-in style, audience, and an optional custom system prompt (up to 8,000 characters). The custom prompt replaces only the style section; the output-language rules, the source-data (prompt-injection) rules, and the platform rules are always kept.
 - `src/app/channels/build-channel.js` turns a stored channel and its decrypted credentials into the same object `defineChannels()` returns, so the shared runner executes it.
 - Every channel is paused in the delivery store before its row is written; resume is refused until all of its credentials resolve.
-- First start seeds `telegram-main` with the Worker's production settings (presets `bigTechBlogs`, `aiNewsSources`, `aiDeepDiveSources`; Gemini `gemini-3.5-flash-lite` through the `news-engine` AI Gateway; drip, daily limit 18; cron `0 0-17 * * *` UTC; Vietnamese digest prompt), paused, without credentials, and marked `cutoverRequired`.
+- First start seeds `telegram-main` with the production settings the retired Worker ran (presets `bigTechBlogs`, `aiNewsSources`, `aiDeepDiveSources`; Gemini `gemini-3.5-flash-lite` through the `news-engine` AI Gateway; drip, daily limit 18; cron `0 0-17 * * *` UTC; Vietnamese digest prompt), paused, without credentials, and marked `cutoverRequired`.
 
 ### Scheduler And Runs
 
-- **Lease:** `app_runtime_lease` holds one owner (60 s TTL, renewed every 15 s). Only the holder schedules; manual runs and every control except pause need the lease (503 `runtime_not_leased`). Pause is always allowed because it only stops delivery, and read-only preview does not need the lease. On Dokploy the planned `stop-first` update order keeps a second container from starting during a redeploy; the lease is the second line of defence.
+- **Lease:** `app_runtime_lease` holds one owner (60 s TTL, renewed every 15 s). Only the holder schedules; manual runs and every control except pause need the lease (503 `runtime_not_leased`). Pause is always allowed because it only stops delivery, and read-only preview does not need the lease. On Dokploy the `stop-first` update order keeps a second container from starting during a redeploy; the lease is the second line of defence.
 - **Schedule:** one `node-cron` job per enabled channel, in the channel's own IANA timezone. A tick is re-checked against the schedule at its instant; a tick for a channel that is already running or queued is skipped and logged. Config changes re-register the channel's job without a restart.
 - **Sequential runs:** one global queue runs one channel at a time; a manual run of a busy channel answers 409 `channel_busy`. `batchSize × delayMs` is capped at 10 minutes so one channel cannot hold the queue.
 - **Runs:** each run builds the channel fresh from the database and calls `runChannels()` with the SQLite delivery store and the app's file cache (`news:{channelId}` keys), so the CLI's guarantees hold: sequential outputs, ambiguous outputs never resent automatically, tech gate, story dedup, daily limit. Each run writes `app_runs` (trigger, status, counts, AI usage, bounded output results, sanitized errors) and `app_source_health`.
@@ -198,15 +193,9 @@ On SIGTERM or SIGINT the app stops taking runs and ticks, waits up to `SHUTDOWN_
 | `retry-*` | Exact target recovery actions |
 | `restore-topology` | Audited, versioned release of one config-matched topology blocker |
 
-In Cloudflare:
-
-- `quiesced` blocks mutation and token maintenance
-- `bootstrap` permits health, status, queue, and operator pause only; preview is blocked because it performs source and AI provider I/O
-- `active` enables the full configured delivery surface; scheduled delivery runs only in this mode
-
 ## Channel Scheduling
 
-For the CLI and the Worker, `src/channels/definitions.js` builds channel configs from environment variables, and `src/channels/runner.js` executes due channels sequentially. The dashboard app schedules its stored channels itself (see above) and calls the same runner.
+For the CLI, `src/channels/definitions.js` builds channel configs from environment variables, and `src/channels/runner.js` executes due channels sequentially. The dashboard app schedules its stored channels itself (see above) and calls the same runner.
 
 Important details:
 
@@ -218,17 +207,6 @@ Important details:
 - `preview` never applies the daily limit or story-coverage exclusion; it stays read-only in every mode
 
 ## Security Model
-
-### Cloudflare Worker
-
-- `TRIGGER_SECRET` protects trigger, status, queue, and preview routes
-- `OPERATOR_SECRET` protects force and recovery routes
-- `OPERATOR_KEY_ID` is required for audit identity
-- `Idempotency-Key` is required for manual and operator mutations
-- `NEWS_RUNTIME_MODE` and `TOKEN_MAINTENANCE_MODE` control runtime exposure
-- X output topology additionally requires `X_DESTINATION_ID`, a stable non-secret authenticated account identity
-
-Aggregate `/status` exposes only redacted runtime mode, channel pause/version, durable last request, source warning, queue/unresolved counts, and paginated request/target projections. Exact request status and aggregate status both repair recovery alarms in active mode.
 
 ### Dashboard App
 
@@ -259,16 +237,12 @@ Audit identities (`operatorId`, `updatedBy`) are the email, or `service:<clientI
 
 ### Cutover Guard
 
-`telegram-main` takes over from the Worker, so it must never post articles published before the cutover.
+The seeded `telegram-main` was created to take over from the Worker, so it must never post articles published before the cutover.
 
 - `cutoverRequired` is system-managed: the seed sets it on `telegram-main` (migration v2 also sets it on an existing `telegram-main` whose cutoff is unset), API input never sets or clears it, and channels created through the API never have it.
 - While such a channel's `notBefore` is unset, resume, manual runs, and `retry-output` answer 409 `cutover_required`, and a scheduled tick (of a channel resumed earlier) is skipped with a warning, before any source is fetched. Preview stays available and sends nothing.
 - `notBefore` (operator-only, via `PUT /api/channels/:id`) drops articles whose `publishedAt` is earlier, ahead of the tech gate. Articles without a readable `publishedAt` are kept (accepted risk: their age cannot be proven); a dropped article appears in the library as `rejected` with reason `before_cutoff`.
-- **Moving `notBefore` later does not drop items already queued.** The filter runs when a scan selects articles; drip items queued before the change keep their place and still post. To enforce a stricter cutoff on a running channel, pause it and abandon the queued items it should not post. The planned cutover is not affected: `telegram-main` has been paused since it was created and preview writes nothing, so its queue is empty when `notBefore` is first set.
-
-### Worker Status
-
-The Worker and its Durable Object state stay deployed. At cutover `telegram-main` is paused on the Worker through the existing operator API (`/control/pause` is allowed even in `bootstrap` mode) before it is resumed on Dokploy, so the two runtimes are never active on the same chat. Nothing in this repository deletes the Worker, its KV namespace, its Durable Objects, or its AI Gateway.
+- **Moving `notBefore` later does not drop items already queued.** The filter runs when a scan selects articles; drip items queued before the change keep their place and still post. To enforce a stricter cutoff on a running channel, pause it and abandon the queued items it should not post. The first cutoff is not affected: a seeded `telegram-main` stays paused from creation and preview writes nothing, so its queue is empty when `notBefore` is first set.
 
 ## Delivery Guarantees
 
@@ -281,28 +255,9 @@ The Worker and its Durable Object state stay deployed. At cutover `telegram-main
 - paused channels do not accept new claims unless an audited paused-mutation override is supplied
 - legacy compatibility replay is separate from authoritative delivery commits
 
-## Rollout Stages
-
-The Worker recovery plan is intentionally staged:
-
-1. quiesce old writers
-2. validate a no-mutation Worker bundle
-3. deploy the lifecycle/bootstrap bundle
-4. keep every channel paused
-5. run a single approved canary
-6. resume only the approved channel
-
-This is a controlled promotion path, not a one-shot deploy. The move to the dashboard app follows the same pause-first rule: the Dokploy channel stays paused until the Worker channel is verified paused (`docs/deployment.md`).
-
 ## Configuration Notes
 
-| File | Role |
-|---|---|
-| `wrangler.quiesce.toml` | Reversible pre-lifecycle Worker bundle |
-| `wrangler.toml` | Lifecycle/bootstrap Worker bundle |
-| `wrangler.active-paused.toml` | Active Worker code with delivery still paused |
-| `wrangler.test.toml` | Worker test bundle |
-| `Dockerfile` / `docker-compose.yml` | Dashboard app image (`news-engine:local`) and local Compose run |
+`Dockerfile` builds the dashboard app image (`news-engine:local`), and `docker-compose.yml` runs it locally.
 
 The Node CLI relies on:
 
@@ -319,4 +274,4 @@ The dashboard app reads `DATA_DIR`, `APP_MASTER_KEY`, `ACCESS_TEAM_DOMAIN`, `ACC
 - Do not claim parallel output sending.
 - Do not route output-capable commands through a non-persistent cache.
 - Do not merge rollout and recovery logic into source or output plugins.
-- Do not let the Worker and the dashboard app run active on the same chat.
+- Do not let two engines post to the same chat: the CLI and the dashboard app keep separate delivery state, so neither knows what the other already posted.

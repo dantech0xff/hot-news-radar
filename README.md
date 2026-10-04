@@ -2,13 +2,12 @@
 
 Content Radar scans technology content from swappable sources, filters it for technology relevance, summarizes it with AI, and posts the result to social channels.
 
-It has three runtimes that share one engine (`src/core`) and one delivery state machine:
+Two runtimes share one engine (`src/core`) and one delivery state machine:
 
-- **Dashboard app** (`src/app/` + `web/`): one Node process that serves a React dashboard and its API, schedules channels, and keeps everything in SQLite. Telegram channels, sources, prompts, AI providers, and encrypted credentials are configured in the dashboard, so changes need no redeploy. It is the primary engine, deployed on Dokploy and served by Dokploy's Traefik behind Cloudflare Access.
-- **Cloudflare Worker** `news-engine` (`src/adapters/cloudflare.js`): the previous production runtime. Its code and Durable Object state are kept; its `telegram-main` channel was paused, not deleted, at the 2026-10-03 cutover, so it remains a rollback path.
-- **Node CLI** (`src/adapters/node.js`): manual runs, a cron daemon, read-only previews, and recovery commands for channels defined in environment variables. Telegram is active by default; X, Facebook, and Threads outputs exist and turn on once their channel-specific environment variables are set.
+- **Dashboard app** (`src/app/` + `web/`): one Node process that serves a React dashboard and its API, schedules channels, and keeps everything in SQLite. Telegram channels, sources, prompts, AI providers, and encrypted credentials are configured in the dashboard, so changes need no redeploy. It is the production engine, deployed on Dokploy and served by Dokploy's Traefik behind Cloudflare Access.
+- **Node CLI** (`src/adapters/node.js`): manual runs, a cron daemon, read-only previews, and recovery commands for channels defined in environment variables. The Telegram channel turns on once `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, and the Facebook channel once `FB_PAGE_TOKEN` and `FB_PAGE_ID` are set.
 
-**Production cutover happened on 2026-10-03:** the dashboard app at `https://radar.dantech.academy` is now the only engine posting to `telegram-main`. The Dokploy deployment, the cutover record, and the rollback runbook are in [docs/deployment.md](./docs/deployment.md).
+The dashboard app at `https://radar.dantech.academy` has been the only engine posting to `telegram-main` since the production cutover on 2026-10-03. The previous production runtime, the Cloudflare Worker `news-engine`, was deleted on 2026-10-04, so there is no Worker fallback. The Dokploy deployment, the cutover record, and the rollback runbook are in [docs/deployment.md](./docs/deployment.md).
 
 Delivery model, in every runtime:
 
@@ -30,7 +29,7 @@ cp .env.example .env
 ### Validate
 
 ```bash
-npm test   # Node and Workers suites, offline
+npm test   # Node suite, offline
 ```
 
 ### Run the dashboard locally
@@ -57,7 +56,7 @@ npm run web:dev
 - Put `APP_MASTER_KEY` in your local `.env` once (`openssl rand -base64 32`) and keep it. It encrypts the credentials stored under `DATA_DIR`; a different key refuses to start.
 - `PUBLIC_ORIGIN` must be the Vite origin. The Vite proxy forwards the browser's `Origin` unchanged and adds `Cf-Access-Jwt-Assertion` from `DEV_ACCESS_TOKEN`.
 - Give the app its own `DATA_DIR` and `CACHE_PATH`. The app also loads `.env`, so without the override it would share the CLI's cache file.
-- The first start seeds `telegram-main` with the Worker's production settings, paused and without credentials. It cannot resume or run until its cutover instant (`notBefore`) is set.
+- The first start seeds `telegram-main` with the production settings the retired Worker ran, paused and without credentials. It cannot resume or run until its cutover instant (`notBefore`) is set.
 
 `web/vite.config.ts` describes the same setup. `npm run app` (alias: `npm run dashboard`) starts the backend without watching and serves the built UI from `web/dist` (`npm run web:build`).
 
@@ -69,12 +68,7 @@ npm run start      # manual run
 npm run start:cron # exact per-channel cron daemon
 ```
 
-The CLI and core engine support Node.js `>=18`. The dashboard app needs Node.js `>=22.13` for `node:sqlite` (the Docker image runs Node 24), the dashboard build needs `>=22.12`, and Workers development and verification need `>=22` because the pinned Wrangler/Vitest toolchain requires it. The checked-in Cloudflare configs are staged artifacts:
-
-- `wrangler.test.toml` for local Worker tests
-- `wrangler.quiesce.toml` for the reversible no-mutation quiesce bundle
-- `wrangler.toml` for the lifecycle/bootstrap bundle with default pause
-- `wrangler.active-paused.toml` for active code with the channel still paused
+The CLI and core engine support Node.js `>=18`. The dashboard app needs Node.js `>=22.13` for `node:sqlite` (the Docker image runs Node 24), and the dashboard build needs `>=22.12`.
 
 ## Dashboard App
 
@@ -97,7 +91,7 @@ Architecture, data, and the security model are in [docs/system-architecture.md](
 
 ## Runtime Modes
 
-CLI commands (`node src/adapters/node.js <command>`):
+CLI commands (`node src/adapters/node.js <command>`; `help` lists every command and flag):
 
 | Command | Behavior | Notes |
 |---|---|---|
@@ -106,6 +100,7 @@ CLI commands (`node src/adapters/node.js <command>`):
 | `cron` | Exact per-channel cron daemon | Uses each channel timezone and schedule |
 | `daemon` | Alias of `cron` | Same behavior |
 | `preview` | Read-only preview | Mode-aware and non-mutating |
+| `status` | Read-only list of one channel's unresolved recovery targets | Requires `--channel`; pages with `--limit` and `--offset` |
 | `pause` / `resume` | Operator recovery controls | Require exact version, idempotency key, and reason |
 | `retry-generation` / `retry-output` | Retry one exact unresolved item | Require exact target IDs and expected version |
 | `restore-topology` | Clear one topology blocker after configuration is restored | Versioned and audited; matching configuration alone never clears the blocker |
@@ -115,26 +110,25 @@ CLI commands (`node src/adapters/node.js <command>`):
 Force semantics are explicit:
 
 - CLI force is `node src/adapters/node.js run --force --channel <id> --idempotency-key <key> --operator-id <key-id> --reason <reason> --confirm-duplicate-risk` (`OPERATOR_KEY_ID` can supply the operator id)
-- Worker force is operator-only and requires `Authorization: Bearer <OPERATOR_SECRET>`
 - The dashboard app has no force: a manual run is an ordinary run outside the schedule
 - Scheduled runs remain schedule-driven; force does not silently change cron semantics
 
 ## Delivery Model
 
 - Sources fetch into a bounded article set, then middlewares can score or filter it.
-- The default Telegram mix combines official AI labs, established technology publications, engineering blogs, community discovery, and curated deep dives. The [preset factories](./src/presets/index.js) and [channel definitions](./src/channels/definitions.js) own the current inventory for the CLI and the Worker; dashboard channels store their own source lists, and the seeded `telegram-main` uses the same presets.
+- The default Telegram mix combines official AI labs, established technology publications, engineering blogs, community discovery, and curated deep dives. The [preset factories](./src/presets/index.js) and [channel definitions](./src/channels/definitions.js) own the current inventory for the CLI; dashboard channels store their own source lists, and the seeded `telegram-main` uses the same presets.
 - AI summarizes the selected articles using the configured language, style, audience, and platform rules.
 - Outputs are processed one at a time in configured topology order.
 - Telegram single-article news posts use a short standard photo caption, target 2–3 summary sentences, and preserve the full source link. Normal captions are capped at 700 characters; links or image content that cannot fit a Telegram caption use the standard photo-plus-text flow. Rich messages are not used.
 - After each output send, the state machine commits the result before the next output starts.
 - Failures become classified states such as retryable, manual-retry-required, ambiguous, or exhausted.
-- Drip mode is a continuous radar: it persists a day batch, can carry unresolved items across days, and scans sources again whenever the batch has open slots under the channel's daily limit (`DRIP_DAILY_LIMIT`, Telegram default 18) and its scan interval has elapsed (default 15 minutes, which only throttles back-to-back scans). A scan runs under a renewable claim; losing that claim mid-scan creates no deliveries. A scan counts as failed only when it throws, or when no source is healthy and it queued nothing; failures are logged as `[Radar] Scan failed`, surface as `scanError` in Cloudflare request status, and back off (capped at an hour) without blocking articles already queued. Before queuing, a scan re-reads delivered stories so a forced drip posted during its fetch is not repeated.
+- Drip mode is a continuous radar: it persists a day batch, can carry unresolved items across days, and scans sources again whenever the batch has open slots under the channel's daily limit (`DRIP_DAILY_LIMIT`, Telegram default 18) and its scan interval has elapsed (default 15 minutes, which only throttles back-to-back scans). A scan runs under a renewable claim; losing that claim mid-scan creates no deliveries. A scan counts as failed only when it throws, or when no source is healthy and it queued nothing; failures are logged as `[Radar] Scan failed`, surface as `scanError` in the dashboard's run details, and back off (capped at an hour) without blocking articles already queued. Before queuing, a scan re-reads delivered stories so a forced drip posted during its fetch is not repeated.
 - Radar scans skip stories already covered by this channel's deliveries from the current or previous publishing day, and queue at most one article per story. See [`src/core/story-dedup.js`](./src/core/story-dedup.js) for the matching rules.
 - The technology-relevance gate ([`src/core/tech-relevance.js`](./src/core/tech-relevance.js)) is a topic filter, not a trust boundary — it does not vet link safety. Community articles from Hacker News and the JSON Reddit source keep their original external link, and the AI news preset's Reddit RSS source links to the Reddit thread (accepted risk).
 - `preview` never applies the daily limit or story-coverage exclusion, and stays read-only in every mode. Each scan fetches every configured source (with retries) plus up to `maxArticlesPerSource` og:image lookups per RSS/Hacker News source (production default 3).
 - Legacy `seen:*` and digest compatibility data are read conservatively and preserved during migration.
 - Pausing blocks new claims. It does not cancel an external call that has already been issued.
-- Cloudflare hot paths use physical per-domain SQLite tables and indexed bounded queries; the generic record table is retained only for schema migration and non-domain compatibility.
+- The SQLite delivery store (dashboard app) uses physical per-domain tables and indexed bounded queries; the generic record table is retained only for schema migration and non-domain compatibility.
 - Status reads count indexed recovery groups and fetch only the requested page. Queue summaries use one indexed aggregate, so neither path truncates after 1,000 records or performs one delivery read per batch item.
 - Bulky terminal delivery detail is pruned after 30 days, ordinary terminal request detail after 90 days, and operator audit detail is minimized/compacted while permanent idempotency and safety tombstones remain replayable. The dashboard app copies deliveries into its content library before that pruning.
 
@@ -175,14 +169,14 @@ src/
 ├── core/      Delivery contracts, state machine, caches, delivery stores
 ├── sources/   RSS, HTML scraper, Hacker News, Reddit, Dev.to, GitHub trending
 ├── ai/        Claude + OpenAI-compatible providers and prompt builder
-├── outputs/   Telegram, X, Facebook, Threads, Slack, Discord, Email, webhook, file
+├── outputs/   Telegram, Facebook, Slack, Discord, Email, webhook, file
 ├── presets/   Source bundle factories
 ├── channels/  Env-defined channels and the shared channel runner
 ├── app/       Dashboard app: server, API, Access auth, SQLite, vault, scheduler
-└── adapters/  Node CLI and Cloudflare Worker entry points
+└── adapters/  Node CLI entry point
 web/           Dashboard UI (React + Vite + TypeScript), built to web/dist
-scripts/       dev-access-token.mjs (local Access JWTs)
-tests/         Node suites, Workers suites (tests/workers), browser E2E (tests/e2e)
+scripts/       dev-access-token.mjs (local Access JWTs), deploy/ (npm run deploy:*)
+tests/         Node suites, browser E2E (tests/e2e)
 ```
 
 ## Recovery Commands
@@ -224,33 +218,10 @@ node src/adapters/node.js retry-output \
 
 The dashboard runs the same recovery code (`executeRecoveryControl`) behind `POST /api/channels/:id/control/:action`, with the authenticated identity as the operator.
 
-## Cloudflare Runtime
-
-`src/adapters/cloudflare.js` routes requests through a per-channel Durable Object coordinator. The runtime modes are:
-
-| Mode | Behavior |
-|---|---|
-| `quiesced` | No delivery mutations, no token maintenance, no coordinator access |
-| `bootstrap` | Health/status/queue plus operator pause only; preview and provider work remain blocked |
-| `active` | Full configured delivery and recovery surface |
-
-Scheduled delivery runs only in `active` mode. On 2026-10-03 production reported `bootstrap`, so the Worker is not posting on schedule; see [docs/deployment.md](./docs/deployment.md).
-
-Protected HTTP routes use separate trigger and operator secrets:
-
-- `TRIGGER_SECRET` authorizes trigger/status/queue/preview routes
-- `OPERATOR_SECRET` authorizes force/canary and recovery control routes
-- `OPERATOR_KEY_ID` is required for audit identity
-- `Idempotency-Key` is required for manual and operator mutations
-- accepted trigger, force, canary, and generation/output retry responses include a request ID and directly pollable `/status` link
-- generation/output retry endpoints atomically claim and persist the exact stage before returning `202`; provider work continues under the coordinator event, while alarms repair only durable claimed work
-
-Aggregate status includes the runtime/pause state, durable last-request pointer, source degradation warning, queue counts, unresolved counts, and paginated redacted requests. Request-specific status also repairs a missing recovery alarm in active mode.
-
 ## Testing
 
 ```bash
-npm test                       # Node + Workers suites (npm run test:node, npm run test:workers)
+npm test                       # Node suite (npm run test:node)
 npm run test:web               # dashboard typecheck + Vitest unit tests (needs npm run web:install)
 npx playwright install chromium   # once, for the browser tests
 npm run test:e2e               # builds web/dist, then Playwright against the real app on 127.0.0.1:4310
@@ -279,24 +250,26 @@ curl http://127.0.0.1:3000/healthz   # "ok"; every other route needs an Access J
 See `.env.example` for the full list. The important groups are:
 
 - AI provider selection and API keys
-- Telegram and optional multi-output credentials
-- `X_DESTINATION_ID`, a stable non-secret authenticated X account identity used in delivery topology keys
+- Cloudflare AI Gateway BYOK for Gemini: `CF_AIG_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `AI_GATEWAY_ID` together (a partial set is refused), plus the optional `AI_GATEWAY_BYOK_ALIAS`, send Gemini calls through the gateway with the provider key stored there instead of `GEMINI_API_KEY`; dashboard channels configure the same path per channel
+- Telegram and the optional Facebook channel credentials
 - cache and delivery-store paths for the CLI
-- Cloudflare runtime mode and secrets
+- `OPERATOR_KEY_ID`, the audit identity of CLI recovery commands
 - the dashboard app: `DATA_DIR`, `APP_MASTER_KEY`, Cloudflare Access (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`), roles (`APP_OPERATOR_EMAILS`, `APP_VIEWER_EMAILS`, `APP_SERVICE_TOKEN_ROLES`), `PUBLIC_ORIGIN`, retention (`CONTENT_SCAN_RETENTION_DAYS`, `RUN_HISTORY_RETENTION_DAYS`), `SHUTDOWN_WAIT_SECONDS`, and the development-only `ACCESS_JWKS_FILE`
-- drip batch sizing, `DRIP_DAILY_LIMIT` (Telegram radar's daily article limit, default 18; other channels use fixed limits), and timeout tuning
+- drip batch sizing and `DRIP_DAILY_LIMIT` (Telegram radar's daily article limit, default 18; other channels use fixed limits)
 
 Dashboard channel secrets are not environment variables: operators enter them in the dashboard. Keep a copy of `APP_MASTER_KEY` in a password manager; losing it means re-entering every stored secret.
 
 ## Kept Production Identifiers
 
-The Content Radar rename is code- and docs-level only. These production identifiers are unchanged on purpose; renaming any of them is a breaking deploy, not a cosmetic edit:
+The Content Radar rename is code- and docs-level only. These production identifiers keep their `news-engine`/`news` names on purpose; renaming any of them is a breaking change, not a cosmetic edit:
 
-- The Cloudflare Worker name `news-engine` and its `workers.dev` hostname (see `docs/deployment.md`) — a new Worker name provisions a new Durable Object namespace, which loses all durable delivery state and risks duplicate posts.
-- `AI_GATEWAY_ID=news-engine`, the `NEWS_CACHE` / `NEWS_COORDINATOR` bindings, and the `NEWS_RUNTIME_MODE` / `NEWS_DEFAULT_PAUSED` / `NEWS_BUILD_VERSION` env vars. The dashboard app reads `NEWS_BUILD_VERSION` too, as the version `/api/health` reports, and the seeded `telegram-main` uses the `news-engine` gateway.
-- The `news:{channelId}` cache/KV key prefix and the `news_schema_migrations` migration table — changing either loses dedup history and can repost already-delivered articles. The dashboard app keeps both in its cache file and SQLite database.
-- The local cache file `.cache/news.json` (CLI), and the `news-engine` Docker Compose service and `news-engine:local` image tag, which now package the dashboard app. The Compose volume is `data` (mounted at `/data`, holding `content-radar.db`, its `backups/`, and the app cache); the CLI-era `cache` volume (`/app/.cache`) is no longer defined.
-- The test-only network markers `X-NewsEngine-Network` and `*.newsengine.invalid`.
+- The `news-engine` Docker Compose service and `news-engine:local` image tag, which package the dashboard app. The Compose volume is `data` (mounted at `/data`, holding `content-radar.db`, its `backups/`, and the app cache).
+- The AI Gateway `news-engine`, a Cloudflare account resource that outlived the Worker: the seeded `telegram-main` and `AI_GATEWAY_ID` refer to it by this ID.
+- `NEWS_BUILD_VERSION`, the version the dashboard app reports in `/api/health`.
+- The `news:{channelId}` cache key prefix — changing it loses the dedup history kept under it and can repost already-delivered articles. The dashboard app keeps it in its cache file (`/data/news.json`), the CLI in `.cache/news.json`.
+- The `news_schema_migrations` table, the delivery store's migration ledger in every existing database.
+
+These Worker identifiers no longer exist: the Worker name and its `workers.dev` hostname, the `NEWS_CACHE` and `NEWS_COORDINATOR` bindings, and the `NEWS_RUNTIME_MODE` and `NEWS_DEFAULT_PAUSED` variables. The KV namespace once bound as `NEWS_CACHE` is still an account resource, but nothing in this repository reads it.
 
 ## Dependencies
 

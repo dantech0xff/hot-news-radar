@@ -3,7 +3,7 @@
 ## Runtime Baseline
 
 - Use ES modules only.
-- Target Node.js `>=18` for the CLI and core engine, and Cloudflare Workers with `nodejs_compat`; use Node.js `>=22` for the pinned Workers development/test toolchain.
+- Target Node.js `>=18` for the CLI and core engine.
 - The dashboard app (`src/app/`) needs Node.js `>=22.13` for `node:sqlite`; the Docker image runs Node 24. Use only `node:sqlite` APIs available in both.
 - Avoid a build step for runtime code. The one exception is the dashboard UI in `web/`, which Vite builds to `web/dist`.
 - Keep core behavior runnable with native `fetch()` only.
@@ -78,10 +78,9 @@ Rules:
 
 - Source fetches are batched by channel concurrency with a short delay between batches.
 - Channels run sequentially in the runner to avoid resource contention; the dashboard app runs one channel at a time through one global queue.
-- Cloudflare delivery uses one Durable Object per channel.
 - The Node CLI uses one owned file store per process.
 - The dashboard app keeps the delivery store and its own tables in one SQLite file, written only by the instance holding the runtime lease (pause is the one control allowed without it).
-- Cloudflare domain records use physical SQLite tables with an application migration ledger and materialized hot-query columns.
+- The SQLite delivery store keeps domain records in physical tables with a migration ledger (`news_schema_migrations`) and materialized hot-query columns.
 - `MemoryCache` is acceptable for tests and dry-run preview, but not for output-capable paths.
 - Preview is read-only for delivery state, not a no-op AI path.
 - Retention must preserve unresolved references and compact idempotency/safety tombstones before removing bulky terminal detail.
@@ -90,7 +89,6 @@ Rules:
 
 - Treat article text, URLs, and metadata as untrusted input.
 - Redact secrets, private URLs, and large opaque values from status and error surfaces.
-- Use distinct trigger and operator credentials for the Worker.
 - Never print, log, or commit environment values or secrets. Configuration errors name the variable and the rule, never the value. Avoid commands that print resolved environments (`printenv`, `env`, `docker compose config` without `--no-env-resolution`, `docker inspect` environment output).
 
 ### Dashboard App Backend
@@ -113,17 +111,16 @@ Rules:
 
 ## Configuration
 
-- Read environment variables in the adapter layer (`src/adapters/*` for the CLI and Worker, `src/app/config/env.js` for the dashboard app).
+- Read environment variables in the runtime entry layer (`src/adapters/node.js` for the CLI, `src/app/config/env.js` for the dashboard app); `defineChannels()` receives the environment as an argument instead of reading `process.env`.
 - Pass config objects downward into channels and plugins.
-- Keep runtime defaults in checked-in config files, not in ad hoc shell state.
+- Keep runtime defaults in checked-in code and config, not in ad hoc shell state.
 - `DELIVERY_STORE_TYPE=file` is the only local delivery-store mode for the CLI.
-- `NEWS_RUNTIME_MODE` controls quiesced, bootstrap, and active behavior in Cloudflare.
-- X output configuration requires the stable non-secret `X_DESTINATION_ID`; never derive delivery topology from a logical channel label alone.
+- Derive an output's `deliveryKey` from its destination (`destinationDeliveryKey()` in `src/outputs/telegram-client.js`), never from a logical channel label alone.
 
 ## Testing And Verification
 
 - Run the narrowest useful test first.
-- `npm test` runs `npm run test:node` (every `tests/**/*.test.js` except `tests/workers`) and `npm run test:workers`.
+- `npm test` runs the Node suite, `npm run test:node` (every `tests/**/*.test.js`).
 - `npm run test:web` typechecks the dashboard and runs its Vitest unit tests.
 - `npm run test:e2e` builds `web/dist` and runs the Playwright specs in `tests/e2e/` against the real app on `127.0.0.1:4310`; run `npx playwright install chromium` once first.
 - Tests run offline. Node tests load `tests/helpers/deny-network.js`; the E2E harness refuses non-loopback connections. Inject fakes through the existing seams (`channelFactories`, `keySet`, `cron`, `timers`, `clock`); production code has no test flags.

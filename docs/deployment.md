@@ -1,150 +1,10 @@
 # Deployment
 
-Two deployments matter:
+The dashboard app is the only production engine. It runs on Dokploy behind Cloudflare Access, served by Dokploy's Traefik, at `https://radar.dantech.academy`, and it has posted to `telegram-main` since the cutover on 2026-10-03 ([Cutover record](#cutover-record-2026-10-03)). Every push to `master` deploys it ([Auto-deploy on push](#auto-deploy-on-push)); the [Rollback Runbook](#rollback-runbook) covers going back.
 
-| Target | Status |
-|---|---|
-| Cloudflare Worker `news-engine` | Still deployed in `bootstrap` mode, kept for rollback. Its `telegram-main` channel was paused at the cutover (channel version 544, 2026-10-03T14:03:30Z). |
-| Dashboard app on Dokploy behind Cloudflare Access, served by Dokploy's Traefik | **Deployed 2026-10-03** at `https://radar.dantech.academy`. Since the cutover (`notBefore` 2026-10-03T14:03:41.986Z) it is the only engine posting to `telegram-main`. |
+**Worker retired (2026-10-04).** The previous production runtime, the Cloudflare Worker `news-engine`, was deleted together with its secrets (`OPERATOR_SECRET`, `TRIGGER_SECRET`), its two cron triggers, its Durable Object data, and its `workers.dev` address, and its code left this repository. There is no Worker fallback. The KV namespace it had bound as `NEWS_CACHE` and the AI Gateway `news-engine` are separate account resources and still exist: nothing here reads the KV namespace, and the gateway remains an optional path for Gemini ([README, Environment Overview](../README.md#environment-overview)).
 
-Secrets are only ever passed through environment variables. Never print them, paste them into chat, or write them to files, logs, docs, or pull requests.
-
-## Platform: Cloudflare Workers
-
-Production URL: <https://news-engine.dan-tran.workers.dev>
-
-### Observed state (2026-10-03)
-
-The Worker no longer matches the 2026-08-08 recovery snapshot further down:
-
-- `GET /health` reports `status: "ok"`, `runtimeMode: "bootstrap"` (not `active`), build `cloudflare-aig-compat-byok-20260729`, and one channel.
-- `GET /status?channel=telegram-main` (trigger secret, read during the 2026-10-03 preflight) reported `paused=false`, `mutationState=blocked_ambiguous`, and channel version `543`.
-- The Worker is therefore **not posting on schedule**: `scheduled()` returns immediately unless the runtime mode is `active`, and `bootstrap` serves only health, status, queue, and `/control/pause`. The ambiguous item behind `blocked_ambiguous` would also hold delivery until an operator reconciles it.
-- The channel itself was still unpaused in its Durable Object, so a later `active` deploy would have started posting again. The cutover paused it explicitly: after the cutover `/status` reports `paused=true`, channel version `544`, still `bootstrap` and `blocked_ambiguous`.
-
-The rest of this section records how production got here. The dated snapshots are historical.
-
-The Worker was promoted in stages. By 2026-08-08 production ran the post-lifecycle `active` runtime with the Telegram coordinator resumed. The SQLite Durable Object lifecycle, legacy KV import, one-message canary, and explicit per-channel resume are complete. Gemini generation through Cloudflare AI Gateway BYOK and the standard Telegram photo-caption delivery path were verified in production. Token maintenance remains disabled until separately approved.
-
-Recovery state (2026-08-08, historical):
-
-- Build: `cloudflare-aig-compat-byok-20260729` active at 100% traffic
-- Runtime: `active`; `telegram-main` resumed and `mutationState=free`
-- Incident request: scheduled request `b745b3d6d4383b92f61415f10df5528102fab661e200617a463cbe7a43d5ad18` completed `ambiguous` at `2026-08-05T16:02:21.024Z`
-- Reconciliation evidence: public Telegram message `1549` appeared at `2026-08-05T16:02:24Z`, three seconds after the durable ambiguity was recorded, so retrying the output would have created a duplicate
-- Recovery: output `261704f3b73e1df7147c655b309f134a8565cc875c876a36a7561d9c576f5a30` on delivery `046087cc696675ee56de71789ac2cbf10a7e09e84023120a0d35313d4fe94d8f` was resolved with versioned `confirm-delivered` and message ID `1549`
-- Verification: channel version `432`, zero ambiguous outputs, zero maintenance dead letters, and repair request `3a6117a648ce73b0df465123a4067935fe1fd04f25c3e21d3cfdf0c0ec14ff7b` completed `success`
-- Telegram delivery resumed with public messages `1552` and `1553` at `2026-08-08T02:20:38Z` and `2026-08-08T02:20:39Z`
-- Queue snapshot after recovery: 29 items for `2026-08-05`, 16 remaining, 3 blocked; 33 generation-exhausted recovery targets remain non-ambiguous and were not retried to avoid stale bulk delivery
-
-Previous AI Gateway recovery state (2026-07-29):
-
-- Build: `cloudflare-aig-compat-byok-20260729`
-- Active Worker artifact: `cloudflare-aig-compat-byok-20260729` at 100% traffic
-- AI model: `gemini-3.5-flash-lite`
-- Runtime: `active`; `telegram-main` remains resumed and mutation-free
-- Health: `200 OK`
-- AI Gateway: provider `google-ai-studio`, BYOK alias `default`; generation retry `ca8f38db39870f046c9050623bba2b7b7e8e96979d6575d7ef61c14596a27f9f` completed `success/generation_ready`
-- Telegram delivery: repair alarm `f315b2be5a40fa1506c3b41cba0ae8ad6c1200a52de750f708fe7cf0fc11a1f6` completed `success` with `articles=1`, `outputs=1`
-- Queue: 24 total, 23 remaining, 22 blocked; one item is `delivered`
-- Safety: zero ambiguous outputs and zero maintenance dead letters
-
-Previous verified delivery state (2026-07-21):
-
-- Build: `telegram-caption-v1-20260721-204a8e0`
-- Active Worker version: `0ff1cb56-db9d-4341-9ae5-3b71f7783bd2` at 100% traffic
-- Runtime: `active`
-- Channel: `telegram-main`, `paused=false`, `mutationState=free`, version `17`
-- Legacy import: 113 keys accounted for, 14 queue items imported, source KV retained
-- Telegram canary: one article and one output completed successfully
-- Standard photo-caption code: deployed; live provider check pending the next scheduled item
-- Scheduled queue: 11 total, 5 remaining, 0 blocked
-- Token maintenance: disabled
-
-### Deploy Commands
-
-Validate the post-lifecycle bootstrap and active-paused artifacts:
-
-```bash
-WRANGLER_LOG_PATH=/tmp/news-engine-bootstrap-dry-run.log \
-  npx wrangler deploy --dry-run --config wrangler.toml
-WRANGLER_LOG_PATH=/tmp/news-engine-active-paused-dry-run.log \
-  npx wrangler deploy --dry-run --config wrangler.active-paused.toml
-```
-
-Deploy active code without resuming the durable channel:
-
-```bash
-WRANGLER_LOG_PATH=/tmp/news-engine-active-paused-deploy.log \
-  npx wrangler deploy --config wrangler.active-paused.toml --strict \
-  --message "deploy active runtime while delivery remains paused"
-```
-
-`wrangler.toml` is the post-lifecycle bootstrap boundary. Do not use `wrangler.quiesce.toml` or any pre-lifecycle Worker version as a rollback target. Channel resume remains a separate versioned operator mutation; `telegram-main` was explicitly resumed after its successful canary. While the dashboard app owns the chat, do not deploy the Worker in `active` mode with `telegram-main` unpaused.
-
-### Environment Variables
-
-Non-secret Worker variables are checked into the selected Wrangler config, including runtime mode, pause defaults, operator audit identity, provider/model selection, delivery limits, and schedules.
-
-Production secrets are stored with Wrangler and never committed:
-
-- `CF_AIG_TOKEN`
-- `GEMINI_API_KEY`
-- `OPENAI_API_KEY`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- `TRIGGER_SECRET`
-- `OPERATOR_SECRET`
-
-`TRIGGER_SECRET` and `OPERATOR_SECRET` must be distinct. `OPERATOR_KEY_ID` is a non-secret audit identity declared in both production configs.
-
-Production Gemini requests use Cloudflare AI Gateway BYOK when
-`CF_AIG_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `AI_GATEWAY_ID` are all present.
-The Google AI Studio key must be stored under the gateway's `default` provider
-key alias (or selected with `AI_GATEWAY_BYOK_ALIAS`). Provider request payloads
-are not logged and gateway response caching is bypassed. `GEMINI_API_KEY`
-remains available only as the direct-provider fallback when gateway config is
-completely absent.
-
-### Custom Domain
-
-No custom domain is configured. The deployment uses the account's `workers.dev` hostname.
-
-### Verification
-
-```bash
-curl --fail-with-body --silent --show-error \
-  https://news-engine.dan-tran.workers.dev/health
-npx wrangler deployments status --config wrangler.toml --json
-```
-
-An active deployment reports `status: "ok"`, `runtimeMode: "active"`, and its build version in `buildVersion`; on 2026-10-03 `/health` reports `runtimeMode: "bootstrap"` (see the observed state above). The 2026-08-08 recovery snapshot reports `paused=false`, `mutationState=free`, channel version `432`, zero ambiguous outputs, zero maintenance dead letters, and 33 unresolved generation targets. The versioned `confirm-delivered` action is backed by public Telegram message `1549`; the following repair alarm completed successfully and produced messages `1552` and `1553`. The earlier AI Gateway recovery moved delivery `7cc7878559638127d33d5fc8647b0a0960a237eb6f242335e390d5bedf716fa2` from `generation_exhausted` to `ready`, after which its repair alarm completed one article and one output.
-
-The approved canary request is `711970696f57497e948441831451f94eea1ea004ba8fcd4ef3a29f1b64c80a59`. Its terminal evidence is `completed/success`, delivery `30a1346a6862c7a2681b90828b52549d6df0875f1329592a8151c7a5a88eb20b`, with `articles=1` and `outputs=1`. Confirmation was read-only; no second canary POST was issued.
-
-Resume completed at `2026-07-21T03:41:57Z` with the exact canary-era executable contract. Independent verification showed the intended 11-item queue unchanged immediately afterward, so it waits for scheduled delivery instead of draining during resume.
-
-Historical note: the superseded rich-message transport was verified with one ordinary authenticated manual trigger, not an operator force. Request `86e1f2aaa04787a5a7d6fec7c526a9a38290504de45556c30c952ef148424c1c` completed `success` with one article and one output at `2026-07-21T07:54:50.911Z`. The current standard photo-caption transport is separately verified by the 2026-07-29 AI Gateway recovery evidence above.
-
-### Worker Version Rollback
-
-The immediate pre-caption active version is `d3882fb8-01f0-460d-9ef9-ffd5891692a1`. It remains on the same post-lifecycle Durable Object contract and can be restored if the standard caption transport causes a production regression:
-
-```bash
-npx wrangler rollback d3882fb8-01f0-460d-9ef9-ffd5891692a1 \
-  --config wrangler.active-paused.toml --yes \
-  --message "restore previous Telegram transport"
-```
-
-The verified post-lifecycle bootstrap rollback version is `0ccd198e-4f99-49dd-8aa1-1c2fcadfce4b`. It preserves the SQLite `ChannelDeliveryCoordinator` namespace, paused defaults, and disabled token maintenance:
-
-```bash
-npx wrangler rollback 0ccd198e-4f99-49dd-8aa1-1c2fcadfce4b \
-  --config wrangler.toml --yes \
-  --message "restore verified post-lifecycle bootstrap boundary"
-```
-
-Never roll back to a version from before the Durable Object class creation. If the captured bootstrap version is unavailable, stop and fix forward from the checksum-verified post-lifecycle artifact; do not rebuild an emergency rollback from a dirty working tree.
+Deploy credentials are only ever passed through environment variables, and channel secrets are entered in the dashboard. Never print them, paste them into chat, or write them to files, logs, docs, or pull requests.
 
 ## Dokploy + Cloudflare
 
@@ -162,7 +22,7 @@ Never roll back to a version from before the Durable Object class creation. If t
 
 The Dokploy panel (`deploy.dantech.academy`) is itself behind Cloudflare Access. To let the deploy script reach its API, the panel's Access application "Dokploy dashboard" also carries the `content-radar-agent-service-token` policy (added 2026-10-03, its existing email policy unchanged), and the operator environment sets `DOKPLOY_BEHIND_ACCESS=true`, which sends the service-token headers to the Dokploy API as well as the app — never to the Cloudflare API. A second Access application covers only `deploy.dantech.academy/api/deploy/github` with a Bypass policy, so the push webhooks of the Dokploy GitHub App reach Dokploy, which verifies their signature itself ([Auto-deploy on push](#auto-deploy-on-push)).
 
-Commands (credentials come from the operator's environment or `.env`; values are never printed):
+Commands (credentials come from the operator's environment or `.env`; values are never printed). The Cloudflare credentials they need were deleted on 2026-10-04 and must be created again first ([Deploy credentials](#deploy-credentials)):
 
 ```bash
 npm run deploy:preflight
@@ -214,7 +74,7 @@ Environment (names only; values are never committed or printed):
 | `ACCESS_TEAM_DOMAIN` | `https://<auth_domain>` from `GET /accounts/{account_id}/access/organizations` |
 | `ACCESS_AUD` | The `aud` of the Access application |
 | `APP_OPERATOR_EMAILS`, `APP_VIEWER_EMAILS` | The people allowed in, by role |
-| `APP_SERVICE_TOKEN_ROLES` | `<client-id>:operator` for the agent's service token, revoked or downgraded after the cutover |
+| `APP_SERVICE_TOKEN_ROLES` | `<client-id>:operator` for the Access service token in `CF_ACCESS_CLIENT_ID`, written by the deploy |
 | `PUBLIC_ORIGIN` | `https://<hostname>` |
 | `CONTENT_SCAN_RETENTION_DAYS`, `RUN_HISTORY_RETENTION_DAYS`, `SHUTDOWN_WAIT_SECONDS` | Optional; defaults 30, 180, and 120 |
 
@@ -233,13 +93,20 @@ Access exists before DNS, and the app is deployed before Traefik routes to it, s
 
 Traefik on the VPS IP and containers on `dokploy-network` reach the app without passing Access, which is why the app verifies the Access JWT on every request itself (all but `GET /healthz`).
 
-The deploy needs these in the operator's environment: `DOKPLOY_URL` and `DOKPLOY_API_KEY` (Dokploy v0.29.5 or later); `CF_API_TOKEN` with edit rights on Access apps and policies, Access organizations and identity providers, Access service tokens, and Zone DNS; `CF_ACCOUNT_ID`; `CF_ZONE_ID`; the hostname; `ORIGIN_IP`, the VPS IPv4 address (operator `.env` only; keep it out of the repository); the operator emails; and the service token as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`. Verify needs `CF_API_TOKEN` and `CF_ZONE_ID` as well, for its DNS check. Check variable names only; never echo their values.
+### Deploy credentials
+
+The deploy needs these in the operator's environment: `DOKPLOY_URL` and `DOKPLOY_API_KEY` (Dokploy v0.29.5 or later); `CF_API_TOKEN` with edit rights on Access apps and policies, Access organizations and identity providers, Access service tokens, and Zone DNS (Zone Read is optional: it lets the preflight check that the hostname is in the zone); `CF_ACCOUNT_ID`; `CF_ZONE_ID`; the hostname as `APP_HOSTNAME`; `ORIGIN_IP`, the VPS IPv4 address (operator `.env` only; keep it out of the repository); the operator emails as `APP_OPERATOR_EMAILS`; and the service token as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`. Verify needs `CF_API_TOKEN` and `CF_ZONE_ID` as well, for its DNS check. Check variable names only; never echo their values.
 
 Optional:
 
 - `DOKPLOY_BEHIND_ACCESS=true` when the Dokploy panel itself is behind Access: its API then gets the service-token headers too, which makes `CF_ACCESS_CLIENT_SECRET` required for every command.
 - `DOKPLOY_SOURCE`: `git` (default) or `github`; see [Auto-deploy on push](#auto-deploy-on-push).
 - `DOKPLOY_GITHUB_PROVIDER`: the name of the Dokploy GitHub provider to use when there are several.
+
+**Deleted on 2026-10-04.** After the cutover, the Cloudflare API token and the Access service token these commands used were deleted. A push to `master` still deploys, because push-to-deploy needs neither. Before the next `npm run deploy:*`, create both again:
+
+1. A Cloudflare API token with the rights above, as `CF_API_TOKEN`.
+2. An Access service token (Zero Trust → Access → Service credentials), as `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Add it by hand to the reusable policy `content-radar-agent-service-token` before the first run: the Dokploy panel is behind Access, and the preflight calls the Dokploy API with this token before the deploy could update that policy. From then on every deploy sets the policy and `APP_SERVICE_TOKEN_ROLES` to the token in `CF_ACCESS_CLIENT_ID`.
 
 ### Auto-deploy on push
 
@@ -272,7 +139,7 @@ Keep in mind:
 - A push deploys code only. Environment, volume, Swarm, Access, domain, and DNS changes still go through `npm run deploy:dokploy`, with `DOKPLOY_SOURCE=github` in the operator `.env`.
 - Watch paths set on the application in Dokploy limit which pushes deploy. The deploy warns about them and clears them only when it saves the source again.
 - Every push to `master` goes to production. Merge through pull requests with the tests green. No CI runs `npm test`, so run it locally before merging.
-- A new container that fails at startup is not rolled back, because the old one is already stopped. Revert the commit on `master`, which deploys again.
+- A new container that fails at startup is not rolled back, because the old one is already stopped. Revert the commit on `master`, which deploys again ([Rollback Runbook](#rollback-runbook)).
 
 ### Verification Checklist
 
@@ -283,44 +150,25 @@ Keep in mind:
 - A redeploy keeps the data (no new seed, no repeated migration), and two containers never run at once.
 - A person signs in through Access and the dashboard loads.
 
-Backups: the app writes `VACUUM INTO` snapshots to `/data/backups/` before schema migrations. Off-site volume backups (Dokploy Volume Backups to S3 or R2) are not set up.
+Backups: the app writes `VACUUM INTO` snapshots to `/data/backups/` before schema migrations ([Rollback Runbook](#rollback-runbook) has the restore). Off-site volume backups (Dokploy Volume Backups to S3 or R2) are not set up.
 
-## Cutover Runbook
+## Cutover record (2026-10-03)
 
-Goal: the dashboard app becomes the only engine posting to the `telegram-main` chat. The Worker and the app must never be active on the same chat: pause the Worker, verify, and only then resume the app.
+The dashboard app took over `telegram-main` from the Worker:
 
-**Cutover record (2026-10-03).** The user signed in through Access, entered the bot token, chat ID, and a Gemini API key in the dashboard (the app's `telegram-main` calls Gemini directly, without AI Gateway), and approved the cutover. Then, with the commands below:
-
-- `npm run cutover:preview` (A4): 5 texts generated with Gemini, 24 of 33 sources healthy, nothing delivered, delivery-state version unchanged.
-- `npm run cutover:pause-worker -- --confirm`: Worker `telegram-main` paused at channel version 544 (2026-10-03T14:03:30Z).
-- `npm run cutover:activate -- --confirm`: `notBefore` set to 2026-10-03T14:03:41.986Z (config version 3), app channel resumed (delivery-state version 3), Worker re-checked and still paused.
-- `npm run -s cutover:check` (A5, polled about hourly for up to 24 h): exits 0 once a delivered post with a Telegram message ID exists and every delivered article was published at or after `notBefore`, 2 while nothing is delivered yet, and 1 on any violation.
-- The first sends (a manual run at 14:40 UTC, then the 15:00 tick) failed with `fetch failed`. The output was recorded as ambiguous, which blocked the channel, so it was paused and the item abandoned (delivery-state version 9); the connection had never been established, so nothing reached Telegram. Probing from inside the container showed Telegram was reachable, not blocked: Node gives each address of a host 250 ms to connect (`autoSelectFamily`), the TCP handshake from the VPS to api.telegram.org takes about 215 to 260 ms, and the next address (IPv6) fails at once in a container without IPv6, so the connection failed with ETIMEDOUT. The server now raises that per-address timeout to 2.5 s at startup.
-- A5 met on 2026-10-03: `npm run cutover:activate -- --confirm --run-now` resumed the channel (`notBefore` kept) and the manual run delivered "Accelerating Spatio-Temporal Attention for Video Diffusion on TPUs" at 16:03:47 UTC, Telegram message `1611`, delivery `833249e997354543b64576af4dc207d01c9cf18141f216d94c215b9d47bdeccd`; `cutover:check` exits 0. Since then the channel posts on its schedule.
-
-The commands read their settings from the environment or `.env` (`TRIGGER_SECRET`, `OPERATOR_SECRET`, `APP_HOSTNAME`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`), refuse every change without `--confirm`, and never print secrets.
-
-**Gate.** All of these, in order:
-
-1. The user signs in to the dashboard through Access.
-2. The user enters the production secrets in the dashboard (bot token, chat ID, and the AI Gateway token or a Gemini API key) and assigns them to `telegram-main`.
-3. Preview: `POST /api/channels/telegram-main/preview` returns content, nothing is sent, and the channel's status `version` is unchanged.
-4. The user explicitly approves the cutover.
-
-**Steps.**
-
-1. Read the Worker channel version: `GET https://news-engine.dan-tran.workers.dev/status?channel=telegram-main` with `Authorization: Bearer $TRIGGER_SECRET`.
-2. Pause the Worker channel: `POST /control/pause` with `Authorization: Bearer $OPERATOR_SECRET`, `Content-Type: application/json`, an `Idempotency-Key` header (for example `cutover-pause-telegram-main-<yyyymmdd>`), and the body `{"channelId":"telegram-main","expectedVersion":<version>,"reason":"Cutover to Dokploy"}`. Pause is accepted in `bootstrap` mode. On a version conflict, read the version again and retry once with a new key.
-3. Read `/status` again and confirm `paused: true`. If the channel is not paused, stop: do not resume anything on Dokploy.
-4. On the app (dashboard, or the API with the operator service token): set `notBefore` on `telegram-main` to the current UTC time with `PUT /api/channels/telegram-main` (body: the new `notBefore` and the config `version` from `GET /api/channels/telegram-main`), then resume it with `POST /api/channels/telegram-main/control/resume` (`idempotencyKey`, `expectedVersion` = `version` from `GET /api/channels/telegram-main/status`, `reason`).
-5. Watch for up to 24 hours for the first delivered post: the next cron tick (`0 0-17 * * *` UTC) or an operator's manual run. Check the status, the run history, and the content library (`delivered` with a Telegram message ID).
-6. Verify: the Worker is still paused; every article the app posted has a `publishedAt` at or after `notBefore`, or none; there are no new ambiguous outputs. If nothing posts within 24 hours, report the scan numbers (source health, articles rejected as `before_cutoff`) instead of moving the cutoff.
-7. Afterwards the user may revoke or downgrade the agent's service token.
-
-Record here once done: the cutover time, the Worker channel version after the pause, and the first delivery and message IDs. No secrets.
+- The user entered the bot token, the chat ID, and a Gemini API key in the dashboard (this `telegram-main` calls Gemini directly, without AI Gateway) and approved the cutover. A preview then generated texts and delivered nothing.
+- The Worker's `telegram-main` was paused at channel version 544 (14:03:30 UTC). The app's cutover mark `notBefore` was set to 2026-10-03T14:03:41.986Z, and the app's channel was resumed.
+- The first sends (a manual run at 14:40 UTC, then the 15:00 tick) failed with `fetch failed`. No connection had been established, so nothing reached Telegram; the output was recorded as ambiguous, which blocked the channel, so it was paused and the item abandoned. The cause: Node gives each address of a host 250 ms to connect (`autoSelectFamily`), the TCP handshake from the VPS to api.telegram.org takes about 215 to 260 ms, and the next address (IPv6) fails at once because the container has no IPv6, so the connection failed with ETIMEDOUT. `src/app/server.js` now raises that per-address timeout to 2.5 s at startup.
+- The channel was resumed with `notBefore` kept, and a manual run at 16:03:47 UTC delivered Telegram message 1611 (delivery `833249e997354543b64576af4dc207d01c9cf18141f216d94c215b9d47bdeccd`). That met the cutover's acceptance check: a delivered post with a Telegram message ID, and no delivered article published before `notBefore`. The channel has posted on its schedule since.
 
 ## Rollback Runbook
 
-1. Pause `telegram-main` on the app: `npm run cutover:rollback -- --confirm`, the dashboard, or `POST /api/channels/telegram-main/control/pause`, which never needs the runtime lease. To take the dashboard offline as well, stop the Dokploy application or delete the DNS record; the channel stays paused.
-2. Only if the Worker should post again: it runs in `bootstrap` mode, where `/control/resume` is refused (only pause is accepted), and its `telegram-main` is `blocked_ambiguous`. It would post only after being redeployed in `active` mode and having the ambiguous item reconciled, which is outside this rollout and needs a user decision. After that, resume it with `POST /control/resume` (a new `Idempotency-Key`, the current `expectedVersion`, and a reason).
-3. Never let both run active on the same chat.
+There is no other engine to fall back to. Rolling back means stopping the posts, then running an earlier version of the app:
+
+1. Pause `telegram-main` in the dashboard (the API route is `POST /api/channels/telegram-main/control/pause`). Pause never needs the runtime lease, so it works whenever the app answers. To take the dashboard offline as well, stop the Dokploy application `content-radar` or delete the DNS record; the channel stays paused.
+2. Revert the faulty commit on `master`. The push deploys the previous code ([Auto-deploy on push](#auto-deploy-on-push)); if that build fails, the running container keeps serving.
+3. Only if the reverted build cannot open the database because a newer build migrated it (startup fails, saying the database has an app schema migration this build does not know, or `Unsupported SQLite delivery schema version`), restore the snapshot written before that migration:
+   - Before migrating a database that holds data, the app writes a `VACUUM INTO` snapshot to `/data/backups/`: `content-radar-<UTC time>-v<from>.db` before an app schema migration, `content-radar-<UTC time>-delivery-v<from>.db` before a delivery-store upgrade, with the time written like `2026-10-04T06-00-00-000Z`. Only the newest 10 are kept ([`src/app/db/database-backup.js`](../src/app/db/database-backup.js)).
+   - Stop the application. In its volume `content-radar-data`, move `content-radar.db` and any `content-radar.db-wal` and `content-radar.db-shm` aside, then copy the snapshot to `content-radar.db` with the snapshot's owner and mode (the app runs as the unprivileged `node` user; `cp -p` keeps both). Start the application again.
+   - Everything written after the snapshot is lost, including the record of posts made since then, and the channel is paused or active as it was at the snapshot. Pause it again as soon as the app is up, before its next scheduled tick.
+4. Resume the channel in the dashboard once its status, queue, and run history look right.
