@@ -81,7 +81,7 @@ The Cloudflare schema uses physical domain tables plus `news_schema_migrations`.
 - Quiesced mode performs no delivery mutation.
 - Token maintenance is a separate switch and does not ride on delivery resume.
 - X delivery topology requires the non-secret authenticated `X_DESTINATION_ID`.
-- Community-sourced articles (Reddit, Hacker News) keep their original external link; the technology-relevance gate filters by topic only, not link safety (accepted risk).
+- Community-sourced articles (Hacker News, and Reddit through its JSON source) keep their original external link, while the AI news preset's Reddit RSS source links to the Reddit thread; the technology-relevance gate filters by topic only, not link safety (accepted risk).
 - `preview` never applies the drip daily limit or story-coverage exclusion.
 - Dashboard: requests without a valid Access JWT get 401 (only `/healthz` is open); viewers cannot change anything (403); every change needs the exact public origin and a JSON body.
 - Dashboard: credential values never appear in responses, events, runs, the library, or logs.

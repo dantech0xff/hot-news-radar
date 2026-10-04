@@ -19,10 +19,6 @@
         "id": "bigTechBlogs",
         "sources": [
           {
-            "id": "uber",
-            "name": "Uber Engineering"
-          },
-          {
             "id": "meta",
             "name": "Meta Engineering"
           },
@@ -49,14 +45,6 @@
           {
             "id": "stripe",
             "name": "Stripe Engineering"
-          },
-          {
-            "id": "airbnb",
-            "name": "Airbnb Tech Blog"
-          },
-          {
-            "id": "linkedin",
-            "name": "LinkedIn Engineering"
           },
           {
             "id": "spotify",
@@ -158,10 +146,6 @@
             "name": "Ars Technica AI"
           },
           {
-            "id": "venturebeat-ai",
-            "name": "VentureBeat AI"
-          },
-          {
             "id": "wired-ai",
             "name": "WIRED AI"
           },
@@ -174,12 +158,8 @@
             "name": "IEEE Spectrum AI"
           },
           {
-            "id": "reddit:LocalLLaMA",
-            "name": "r/LocalLLaMA"
-          },
-          {
-            "id": "reddit:artificial",
-            "name": "r/artificial"
+            "id": "reddit-ai",
+            "name": "r/LocalLLaMA + r/artificial"
           },
           {
             "id": "hackernews:AI LLM GPT OpenAI Anthropic",

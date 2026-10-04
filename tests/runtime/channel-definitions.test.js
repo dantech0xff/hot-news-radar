@@ -37,7 +37,7 @@ test('Telegram defaults use a broad set of recognized AI sources', () => {
   });
   const sourceIds = channel.sources.map(source => source.id);
 
-  assert.equal(sourceIds.length, 33);
+  assert.equal(sourceIds.length, 28);
   assert.equal(new Set(sourceIds).size, sourceIds.length);
   assert.ok(!sourceIds.includes('reddit:singularity'), 'futurism subreddit is not a default tech source');
   for (const sourceId of [

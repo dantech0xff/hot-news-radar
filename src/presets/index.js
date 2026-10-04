@@ -8,6 +8,7 @@ import { HackerNewsSource } from '../sources/hackernews.js';
 import { RedditSource } from '../sources/reddit.js';
 import { DevToSource } from '../sources/devto.js';
 import { GitHubTrendingSource } from '../sources/github-trending.js';
+import { MAX_SOURCE_RESPONSE_BODY_CEILING_BYTES } from '../sources/source-result.js';
 
 const OFFICIAL_AI_FEEDS = [
   { id: 'openai',      name: 'OpenAI Blog',       feedUrl: 'https://openai.com/blog/rss.xml',      icon: '🤖', category: 'AI/ML' },
@@ -19,13 +20,16 @@ function createOfficialAIFeedConfigs() {
   return OFFICIAL_AI_FEEDS.map(config => ({ ...config }));
 }
 
+// Feeds that embed the full text of every post are larger than the default
+// response cap (about 2.6 and 3.6 MiB in 2026), so they ask for the ceiling.
+const FULL_TEXT_FEED_MAX_BYTES = MAX_SOURCE_RESPONSE_BODY_CEILING_BYTES;
+
 // ============================================
-// Big Tech Engineering Blogs (15 sources)
+// Big Tech Engineering Blogs (12 sources)
 // ============================================
 
 export function bigTechBlogs() {
   return createRSSSources([
-    { id: 'uber',       name: 'Uber Engineering',       feedUrl: 'https://www.uber.com/blog/engineering/rss/',          icon: '🚗', category: 'Big Tech' },
     { id: 'meta',       name: 'Meta Engineering',        feedUrl: 'https://engineering.fb.com/feed/',                    icon: '🔵', category: 'Big Tech' },
     { id: 'netflix',    name: 'Netflix Tech Blog',       feedUrl: 'https://netflixtechblog.com/feed',                   icon: '🎬', category: 'Big Tech' },
     { id: 'aws',        name: 'AWS Architecture',        feedUrl: 'https://aws.amazon.com/blogs/architecture/feed/',     icon: '☁️', category: 'Cloud' },
@@ -33,12 +37,10 @@ export function bigTechBlogs() {
     { id: 'github',     name: 'GitHub Blog',             feedUrl: 'https://github.blog/feed/',                          icon: '🐙', category: 'Developer Tools' },
     { id: 'google-dev', name: 'Google Developers',       feedUrl: 'https://developers.googleblog.com/feeds/posts/default?alt=rss', icon: '🔍', category: 'Big Tech' },
     { id: 'stripe',     name: 'Stripe Engineering',      feedUrl: 'https://stripe.com/blog/feed.rss',                   icon: '💳', category: 'Fintech' },
-    { id: 'airbnb',     name: 'Airbnb Tech Blog',        feedUrl: 'https://medium.com/feed/airbnb-engineering',         icon: '🏠', category: 'Big Tech' },
-    { id: 'linkedin',   name: 'LinkedIn Engineering',    feedUrl: 'https://engineering.linkedin.com/blog.rss',           icon: '💼', category: 'Big Tech' },
     { id: 'spotify',    name: 'Spotify Engineering',     feedUrl: 'https://engineering.atspotify.com/feed/',             icon: '🎵', category: 'Big Tech' },
     { id: 'dropbox',    name: 'Dropbox Tech Blog',       feedUrl: 'https://dropbox.tech/feed',                          icon: '📦', category: 'Big Tech' },
-    { id: 'shopify',    name: 'Shopify Engineering',     feedUrl: 'https://shopify.engineering/blog/feed',               icon: '🛒', category: 'E-commerce' },
-    { id: 'vercel',     name: 'Vercel Blog',             feedUrl: 'https://vercel.com/atom',                             icon: '▲',  category: 'Developer Tools' },
+    { id: 'shopify',    name: 'Shopify Engineering',     feedUrl: 'https://shopify.engineering/blog.atom',               icon: '🛒', category: 'E-commerce' },
+    { id: 'vercel',     name: 'Vercel Blog',             feedUrl: 'https://vercel.com/atom',                             icon: '▲',  category: 'Developer Tools', maxResponseBytes: FULL_TEXT_FEED_MAX_BYTES },
     { id: 'mozilla',    name: 'Mozilla Hacks',           feedUrl: 'https://hacks.mozilla.org/feed/',                     icon: '🦊', category: 'Web Platform' },
   ]);
 }
@@ -70,7 +72,7 @@ export function aiMLBlogs() {
 }
 
 // ============================================
-// AI News Sources — daily driver (13 sources)
+// AI News Sources — daily driver (11 sources)
 // Launches, research, and industry news
 // ============================================
 
@@ -81,13 +83,13 @@ export function aiNewsSources() {
       { id: 'techcrunch-ai',  name: 'TechCrunch AI',     feedUrl: 'https://techcrunch.com/category/artificial-intelligence/feed/', icon: '💚', category: 'AI News' },
       { id: 'verge-ai',       name: 'The Verge AI',      feedUrl: 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', icon: '🔮', category: 'AI News' },
       { id: 'ars-ai',         name: 'Ars Technica AI',   feedUrl: 'https://arstechnica.com/ai/feed/',           icon: '🔬', category: 'AI News' },
-      { id: 'venturebeat-ai', name: 'VentureBeat AI',    feedUrl: 'https://venturebeat.com/category/ai/feed/',  icon: '📈', category: 'AI News' },
       { id: 'wired-ai',       name: 'WIRED AI',          feedUrl: 'https://www.wired.com/feed/tag/ai/latest/rss', icon: '🧵', category: 'AI News' },
       { id: 'mit-tech-review-ai', name: 'MIT Technology Review AI', feedUrl: 'https://www.technologyreview.com/topic/artificial-intelligence/feed/', icon: '🎓', category: 'AI News' },
       { id: 'ieee-spectrum-ai', name: 'IEEE Spectrum AI', feedUrl: 'https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss', icon: '⚡', category: 'AI News' },
+      // Reddit answers unauthenticated .json requests with 403, so both AI subreddits are
+      // read through one RSS request (top posts of the last day; the feed has no scores).
+      { id: 'reddit-ai', name: 'r/LocalLLaMA + r/artificial', feedUrl: 'https://www.reddit.com/r/LocalLLaMA+artificial/top.rss?t=day&limit=25', icon: '🔴', category: 'Community' },
     ]),
-    new RedditSource({ subreddit: 'LocalLLaMA', minUpvotes: 200 }),
-    new RedditSource({ subreddit: 'artificial', minUpvotes: 200 }),
     new HackerNewsSource({ query: 'AI LLM GPT OpenAI Anthropic', minPoints: 80 }),
   ];
 }
@@ -101,7 +103,7 @@ export function aiDeepDiveSources() {
   return createRSSSources([
     { id: 'lilianweng',     name: 'Lilian Weng',        feedUrl: 'https://lilianweng.github.io/index.xml',              icon: '📝', category: 'AI Deep-Dive' },
     { id: 'latentspace',    name: 'Latent Space',       feedUrl: 'https://www.latent.space/feed',                       icon: '🎙️', category: 'AI Deep-Dive' },
-    { id: 'ahead-of-ai',   name: 'Ahead of AI',        feedUrl: 'https://magazine.sebastianraschka.com/feed',           icon: '🔭', category: 'AI Deep-Dive' },
+    { id: 'ahead-of-ai',   name: 'Ahead of AI',        feedUrl: 'https://magazine.sebastianraschka.com/feed',           icon: '🔭', category: 'AI Deep-Dive', maxResponseBytes: FULL_TEXT_FEED_MAX_BYTES },
     { id: 'oneusefulthing', name: 'One Useful Thing',   feedUrl: 'https://www.oneusefulthing.org/feed',                 icon: '💡', category: 'AI Deep-Dive' },
     { id: 'import-ai',     name: 'Import AI',           feedUrl: 'https://importai.substack.com/feed',                  icon: '📬', category: 'AI Deep-Dive' },
   ]);
