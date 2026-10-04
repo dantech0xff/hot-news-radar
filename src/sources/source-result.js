@@ -8,6 +8,11 @@
 
 export const SOURCE_FETCH_DIAGNOSTIC_CAPABILITY = 'source-fetch-diagnostic-v1';
 export const MAX_SOURCE_RESPONSE_BODY_BYTES = 2 * 1024 * 1024;
+/**
+ * Highest cap a source may ask for with `maxResponseBytes`. Some feeds embed
+ * the full text of every post and are larger than the default cap.
+ */
+export const MAX_SOURCE_RESPONSE_BODY_CEILING_BYTES = 8 * 1024 * 1024;
 
 const RESULT_STATUSES = new Set(['success', 'empty', 'unknown']);
 const DIAGNOSTIC_CAPTURE = Symbol('sourceDiagnosticCapture');
@@ -71,7 +76,7 @@ export function unknownSourceResult(articles = []) {
  * Read a response as UTF-8 without buffering beyond a fixed byte cap.
  *
  * @param {Response|Object} response
- * @param {number} [maxBytes]
+ * @param {number} [maxBytes] Cap in bytes; defaults to MAX_SOURCE_RESPONSE_BODY_BYTES and is never above MAX_SOURCE_RESPONSE_BODY_CEILING_BYTES.
  * @returns {Promise<string>}
  */
 export async function readSourceText(response, maxBytes = MAX_SOURCE_RESPONSE_BODY_BYTES) {
@@ -287,7 +292,7 @@ function normalizeHttpStatus(value) {
 function normalizeResponseBodyLimit(value) {
   const bytes = Number(value);
   if (!Number.isFinite(bytes) || bytes <= 0) return MAX_SOURCE_RESPONSE_BODY_BYTES;
-  return Math.min(Math.max(1, Math.floor(bytes)), MAX_SOURCE_RESPONSE_BODY_BYTES);
+  return Math.min(Math.max(1, Math.floor(bytes)), MAX_SOURCE_RESPONSE_BODY_CEILING_BYTES);
 }
 
 function declaredBodyLength(response) {

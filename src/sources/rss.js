@@ -27,6 +27,7 @@ export class RSSSource extends SourcePlugin {
    * @param {string} [config.icon]   - Emoji icon
    * @param {string} [config.category]
    * @param {string} [config.baseUrl] - Base URL để resolve relative links
+   * @param {number} [config.maxResponseBytes] - Response size cap for feeds that embed full post text (default 2 MiB, at most 8 MiB)
    */
   constructor(config) {
     super();
@@ -62,7 +63,7 @@ export class RSSSource extends SourcePlugin {
             await discardSourceResponse(response);
             throw httpSourceFailure(response.status);
           }
-          return readSourceText(response);
+          return readSourceText(response, this._config.maxResponseBytes);
         },
       );
       validateFeedDocument(xml);
