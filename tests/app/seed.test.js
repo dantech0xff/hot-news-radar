@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 
 import { buildChannelFromConfig } from '../../src/app/channels/build-channel.js';
 import { ChannelConflictError, ChannelRepository } from '../../src/app/channels/channel-repository.js';
@@ -40,12 +39,6 @@ function otherChannel(id) {
     prompt: { audience: 'IT' },
     ai: { provider: 'claude' },
   };
-}
-
-async function wranglerVars() {
-  const text = await readFile(new URL('../../wrangler.toml', import.meta.url), 'utf8');
-  const vars = text.match(/^\[vars\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1] ?? '';
-  return Object.fromEntries([...vars.matchAll(/^([A-Z0-9_]+)\s*=\s*"([^"]*)"\s*$/gm)].map(([, key, value]) => [key, value]));
 }
 
 test('an empty database is seeded with a paused telegram-main', async t => {
@@ -170,31 +163,40 @@ test('a custom actor is recorded on the pause and the channel', async t => {
   await assert.rejects(seedDefaultChannels({ channelRepository: channels }), TypeError);
 });
 
-test('the seeded channel builds the same runtime channel as the production Worker', async () => {
-  const vars = await wranglerVars();
-  assert.equal(vars.AI_PROVIDER, 'gemini', 'wrangler.toml [vars] were parsed');
+test('the seeded channel builds the same runtime channel as the Node CLI builds from the same settings', async () => {
+  const seed = telegramMainSeedConfig();
   const fakeSecrets = { 'bot-token': '123456:FAKE-test-bot-token', 'chat-id': '-1001234567890', 'gateway-token': 'fake-gateway-token-for-tests' };
-  const [worker] = defineChannels({
-    ...vars,
+  const [cli] = defineChannels({
+    AI_PROVIDER: seed.ai.provider,
+    AI_MODEL: seed.ai.model,
+    CLOUDFLARE_ACCOUNT_ID: seed.ai.gateway.accountId,
+    AI_GATEWAY_ID: seed.ai.gateway.gatewayId,
+    BROADCAST_MODE: seed.mode,
+    CRON_SCHEDULE: seed.cron,
+    SUMMARY_LANGUAGE: seed.prompt.language,
+    DRIP_BATCH_SIZE: String(seed.limits.batchSize),
+    DRIP_DELAY_MS: String(seed.limits.delayMs),
+    MAX_ARTICLES: String(seed.limits.maxArticles),
+    MAX_ARTICLES_PER_SOURCE: String(seed.limits.maxArticlesPerSource),
+    CONCURRENCY_LIMIT: String(seed.limits.concurrency),
     TELEGRAM_BOT_TOKEN: fakeSecrets['bot-token'],
     TELEGRAM_CHAT_ID: fakeSecrets['chat-id'],
     CF_AIG_TOKEN: fakeSecrets['gateway-token'],
   });
-  const seed = telegramMainSeedConfig();
   const seeded = await buildChannelFromConfig({
     ...seed,
     ai: { ...seed.ai, gateway: { ...seed.ai.gateway, tokenCredentialId: 'gateway-token' } },
     telegram: { botTokenCredentialId: 'bot-token', chatIdCredentialId: 'chat-id' },
   }, { resolveCredential: credentialId => fakeSecrets[credentialId] });
 
-  assert.deepEqual(seeded.sources.map(source => source.sourceKey), worker.sources.map(source => source.sourceKey));
-  assert.equal(seeded.ai.constructor, worker.ai.constructor);
-  assert.deepEqual(seeded.ai._config, worker.ai._config);
-  assert.equal(seeded.output.deliveryKey, worker.output.deliveryKey);
-  assert.deepEqual(seeded.output._config, worker.output._config);
-  assert.deepEqual(seeded.prompt, worker.prompt);
+  assert.deepEqual(seeded.sources.map(source => source.sourceKey), cli.sources.map(source => source.sourceKey));
+  assert.equal(seeded.ai.constructor, cli.ai.constructor);
+  assert.deepEqual(seeded.ai._config, cli.ai._config);
+  assert.equal(seeded.output.deliveryKey, cli.output.deliveryKey);
+  assert.deepEqual(seeded.output._config, cli.output._config);
+  assert.deepEqual(seeded.prompt, cli.prompt);
   for (const key of ['id', 'mode', 'schedule', 'timezone', 'batchSize', 'delayMs', 'dailyLimit', 'maxArticles', 'maxArticlesPerSource', 'concurrency']) {
-    assert.equal(seeded[key], worker[key], key);
+    assert.equal(seeded[key], cli[key], key);
   }
   assert.equal(seeded.notBefore, null);
 });

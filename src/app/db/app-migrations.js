@@ -139,7 +139,7 @@ export const APP_MIGRATIONS = Object.freeze([
   }),
   // `cutover_required` is system-managed (never taken from API input): such a
   // channel may not start delivering until `not_before` is set. The seed sets
-  // it for `telegram-main`, which takes over from the Cloudflare Worker; a
+  // it for `telegram-main`, which took over from the retired Cloudflare Worker; a
   // `telegram-main` row written before this column existed gets it too while
   // its cutoff is still unset.
   Object.freeze({

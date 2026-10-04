@@ -179,41 +179,6 @@ async function readFileCacheState(fs, path, { allowMissing = true } = {}) {
 }
 
 // ============================================
-// Cloudflare KV
-// ============================================
-
-export class CloudflareKVCache extends CachePlugin {
-  constructor(kvBinding, { required = false } = {}) {
-    super();
-    this._kv = kvBinding;
-    if (required && !kvBinding) throw new Error('NEWS_CACHE binding is required');
-  }
-
-  get capabilities() { return { persistent: Boolean(this._kv), nonMutatingRead: true, deliveryStore: false }; }
-
-  async preflight({ required = false } = {}) {
-    if (required && !this._kv) throw new Error('NEWS_CACHE binding is required');
-    return this.capabilities;
-  }
-
-  async get(key) {
-    if (!this._kv) return null;
-    return await this._kv.get(key);
-  }
-
-  async peek(key) { return this.get(key); }
-
-  async set(key, value, ttl = DEFAULT_TTL) {
-    if (!this._kv) return;
-    await this._kv.put(key, typeof value === 'string' ? value : JSON.stringify(value), {
-      expirationTtl: Math.floor(ttl / 1000),
-    });
-  }
-
-  async delete(key) { if (this._kv) await this._kv.delete(key); }
-}
-
-// ============================================
 // Redis
 // ============================================
 

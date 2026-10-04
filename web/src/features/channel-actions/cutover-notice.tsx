@@ -37,7 +37,7 @@ export function CutoverNotice({ channelId, compact = false, className }: { chann
   return (
     <Notice tone="danger" title={CUTOVER_NOTICE_TITLE} className={className}>
       <p>
-        Kênh này tiếp quản việc đăng bài từ hệ thống khác (Cloudflare Worker). Resume, Chạy ngay và Gửi lại bị khoá cho tới khi
+        Kênh này tiếp quản việc đăng bài từ một hệ thống khác. Resume, Chạy ngay và Gửi lại bị khoá cho tới khi
         đặt mốc cutover (notBefore), để chỉ bài publish sau mốc này mới được đăng. Preview vẫn dùng được vì không gửi bài.
       </p>
       <p>{link}</p>

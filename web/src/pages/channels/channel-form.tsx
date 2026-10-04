@@ -470,7 +470,7 @@ function CutoverSection({ form, isNew, cutoverRequired, initialNotBefore, change
     <FormSection id={CUTOVER_SECTION_ID} title="Cutover" description="Mốc thời gian tối thiểu của bài được đăng. Chỉ operator được thay đổi.">
       <Notice tone="warning" title="Thận trọng: mốc cutover quyết định bài nào được đăng">
         <p>Bài có thời điểm đăng gốc trước mốc này sẽ không bao giờ được đăng (bài không có thời điểm đăng vẫn được xét).</p>
-        <p>Đặt mốc sai có thể làm đăng lại bài cũ hoặc bỏ sót bài mới. Chỉ đổi khi chuyển kênh giữa các hệ thống (ví dụ từ Cloudflare Worker sang dashboard này).</p>
+        <p>Đặt mốc sai có thể làm đăng lại bài cũ hoặc bỏ sót bài mới. Chỉ đổi khi chuyển kênh giữa các hệ thống (ví dụ từ một hệ thống cũ sang dashboard này).</p>
         <p>Dời mốc muộn hơn không loại các bài đã xếp hàng; muốn bỏ chúng, hãy pause kênh rồi abandon từng mục trong {operations}.</p>
         {cutoverRequired ? (
           <p className="font-semibold">Kênh này bắt buộc có mốc cutover: Resume, Chạy ngay và Gửi lại bị khoá cho tới khi mốc được lưu.</p>

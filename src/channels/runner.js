@@ -157,18 +157,6 @@ export function validateCronExpression(cronExpr) {
   ));
 }
 
-/** Whether a channel minute field can be observed by the Worker's :00/:30 outer cron. */
-export function isHalfHourlyScheduleReachable(cronExpr, timezone = 'UTC') {
-  if (!validateCronExpression(cronExpr)) return false;
-  const minuteField = cronExpr.trim().split(/\s+/)[0];
-  const minuteOnly = `${minuteField} * * * *`;
-  const start = Date.UTC(2026, 0, 1);
-  for (let slot = 0; slot < 48; slot++) {
-    if (shouldRun(minuteOnly, new Date(start + slot * 30 * 60_000), timezone)) return true;
-  }
-  return false;
-}
-
 function validateCronPart(part, [minimum, maximum]) {
   const [range, step, extra] = part.split('/');
   if (extra !== undefined || (step !== undefined && !isIntegerInRange(step, 1, maximum - minimum + 1))) return false;

@@ -9,7 +9,6 @@ async function findTests(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (entry.name === 'workers') continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...await findTests(path));
     else if (entry.name.endsWith('.test.js')) files.push(path);

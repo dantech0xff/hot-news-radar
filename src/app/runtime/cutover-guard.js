@@ -1,10 +1,10 @@
 /**
  * Cutover guard. A channel marked `cutoverRequired` (the seeded
- * `telegram-main`, which takes over from the Cloudflare Worker) must not start
- * delivering while its `notBefore` cutoff is unset; otherwise articles
- * published before the cutover could be posted. Resume, manual runs, operator
- * output retries, and runs of an unpaused channel are all refused until
- * `notBefore` is set. Read-only preview stays allowed.
+ * `telegram-main`, created to take over from the retired Cloudflare Worker)
+ * must not start delivering while its `notBefore` cutoff is unset; otherwise
+ * articles published before the cutover could be posted. Resume, manual runs,
+ * operator output retries, and runs of an unpaused channel are all refused
+ * until `notBefore` is set. Read-only preview stays allowed.
  */
 
 import { RuntimeError } from './errors.js';

@@ -88,7 +88,7 @@ function makeAI(env) {
 
 /**
  * Define all channels from env vars
- * @param {Object} env - CF Worker env or process.env
+ * @param {Object} env - Environment variables (process.env)
  * @returns {Array<import('./runner.js').ChannelConfig>}
  */
 export function defineChannels(env) {

@@ -7,8 +7,6 @@
     "start": "node src/adapters/node.js run",
     "start:cron": "node src/adapters/node.js cron",
     "preview": "node src/adapters/node.js preview",
-    "dev": "wrangler dev --config wrangler.toml",
-    "deploy:cf": "wrangler deploy --config wrangler.toml",
     "docker:build": "docker build -t news-engine:local .",
     "docker:run": "docker compose up -d",
     "dashboard": "node src/app/server.js",
@@ -19,20 +17,13 @@
     "deploy:preflight": "node scripts/deploy/dokploy-cloudflare.mjs preflight",
     "deploy:dokploy": "node --disable-warning=ExperimentalWarning scripts/deploy/dokploy-cloudflare.mjs deploy",
     "deploy:verify": "node scripts/deploy/dokploy-cloudflare.mjs verify",
-    "cutover:status": "node scripts/deploy/cutover.mjs status",
-    "cutover:preview": "node scripts/deploy/cutover.mjs preview",
-    "cutover:pause-worker": "node scripts/deploy/cutover.mjs pause-worker",
-    "cutover:activate": "node scripts/deploy/cutover.mjs activate",
-    "cutover:check": "node scripts/deploy/cutover.mjs check-first-post",
-    "cutover:rollback": "node scripts/deploy/cutover.mjs rollback",
     "web:install": "npm --prefix web ci",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
     "test:web": "npm --prefix web run typecheck && npm --prefix web test",
     "test:e2e": "npm run web:build && playwright test",
-    "test": "npm run test:node && npm run test:workers",
-    "test:node": "node tests/run-node-tests.js",
-    "test:workers": "vitest run --config vitest.config.js"
+    "test": "npm run test:node",
+    "test:node": "node tests/run-node-tests.js"
   },
   "dependencies": {
     "express": "^5.2.1",
@@ -44,10 +35,7 @@
     "redis": "^4.7.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.18.6",
-    "@playwright/test": "1.63.0",
-    "vitest": "4.1.10",
-    "wrangler": "4.112.0"
+    "@playwright/test": "1.63.0"
   },
   "engines": {
     "node": ">=18.0.0"

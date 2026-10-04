@@ -6,7 +6,6 @@
 **/.env*
 **/.dev.vars
 **/.cache
-**/.wrangler
 .claude
 
 # Dependencies and build output are installed and built inside the image.
@@ -18,7 +17,6 @@ web/dist
 plans
 tests
 docs
-mnt
 streams.config.json
 repomix-output.*
 test-results

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isHalfHourlyScheduleReachable, shouldRun, validateCronExpression } from '../../src/channels/runner.js';
+import { shouldRun, validateCronExpression } from '../../src/channels/runner.js';
 
 const at = iso => new Date(iso);
 
@@ -47,10 +47,4 @@ test('the production schedule 0 0-17 * * * is unchanged', () => {
   for (const time of ['18:00', '23:00', '00:30', '07:07']) {
     assert.equal(shouldRun(schedule, at(`2026-10-03T${time}:00.000Z`)), false, time);
   }
-  assert.equal(isHalfHourlyScheduleReachable(schedule, 'UTC'), true);
-});
-
-test('a minute-7 schedule is no longer reported reachable by the half-hourly Worker cron', () => {
-  assert.equal(isHalfHourlyScheduleReachable('7 * * * *', 'UTC'), false);
-  assert.equal(isHalfHourlyScheduleReachable('0,7 * * * *', 'UTC'), true);
 });

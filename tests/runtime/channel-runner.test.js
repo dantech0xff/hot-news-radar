@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MemoryCache } from '../../src/core/caches.js';
-import { buildEngine, isHalfHourlyScheduleReachable, runChannels, shouldRun } from '../../src/channels/runner.js';
+import { buildEngine, runChannels, shouldRun } from '../../src/channels/runner.js';
 import { RecordingOutput } from '../helpers/fakes.js';
 
 function channel(id, mode = 'digest', schedule = '15 9 * * *') {
@@ -123,10 +123,4 @@ test('explicit scheduled trigger cannot be converted to force by the force optio
     }),
     /force.*triggerType/i,
   );
-});
-
-test('Cloudflare half-hour cadence reachability accounts for channel timezone minutes', () => {
-  assert.equal(isHalfHourlyScheduleReachable('0 9 * * *', 'UTC'), true);
-  assert.equal(isHalfHourlyScheduleReachable('15 9 * * *', 'Asia/Singapore'), false);
-  assert.equal(isHalfHourlyScheduleReachable('15 9 * * *', 'Asia/Kathmandu'), true);
 });

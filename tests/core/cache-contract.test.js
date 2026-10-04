@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promi
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CloudflareKVCache, FileCache, MemoryCache, RedisCache } from '../../src/core/caches.js';
+import { FileCache, MemoryCache, RedisCache } from '../../src/core/caches.js';
 import { PrefixedCache } from '../../src/core/prefixed-cache.js';
 
 function createBoundaryFailingFs(targetPath) {
@@ -148,12 +148,6 @@ test('prefixed cache forwards pure reads and capabilities', async () => {
   await cache.set('one', '1');
   assert.equal(await cache.peek('one'), '1');
   assert.deepEqual(cache.capabilities, inner.capabilities);
-});
-
-test('required Cloudflare KV binding fails before mutations', async () => {
-  assert.throws(() => new CloudflareKVCache(null, { required: true }), /NEWS_CACHE|binding/i);
-  const optional = new CloudflareKVCache(null);
-  await assert.rejects(optional.preflight({ required: true }), /NEWS_CACHE|binding/i);
 });
 
 test('Redis cache awaits set and delete client operations', async () => {

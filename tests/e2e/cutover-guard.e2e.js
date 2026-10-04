@@ -1,9 +1,9 @@
 /**
- * The seeded `telegram-main` channel takes over from the Cloudflare Worker, so
- * it must not start delivering before its cutover instant (`notBefore`) is
- * saved: Resume and "Chạy ngay" stay locked in the UI (and the API refuses a
- * run) until the operator sets the instant and confirms the change. The
- * channel is never resumed here.
+ * The seeded `telegram-main` channel was created to take over from the retired
+ * Cloudflare Worker, so it must not start delivering before its cutover
+ * instant (`notBefore`) is saved: Resume and "Chạy ngay" stay locked in the UI
+ * (and the API refuses a run) until the operator sets the instant and confirms
+ * the change. The channel is never resumed here.
  */
 
 import { SEEDED_CHANNEL } from './fixtures/constants.js';

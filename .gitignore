@@ -3,7 +3,6 @@ node_modules/
 .env
 streams.config.json
 .dev.vars
-.wrangler/
 dist/
 output/
 *.log

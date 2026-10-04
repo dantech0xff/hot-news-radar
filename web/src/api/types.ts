@@ -204,8 +204,8 @@ export interface ChannelRecord extends ChannelConfig {
   updatedAt: string;
   updatedBy: string | null;
   /**
-   * Read-only system state (the seeded channel that takes over from the
-   * Cloudflare Worker): while `notBefore` is unset the server refuses resume,
+   * Read-only system state (the seeded channel, created to take over from the
+   * retired Cloudflare Worker): while `notBefore` is unset the server refuses resume,
    * manual runs, and output retries with 409 `cutover_required`.
    */
   cutoverRequired: boolean;

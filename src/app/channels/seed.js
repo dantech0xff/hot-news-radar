@@ -1,8 +1,9 @@
 /**
  * First-start seed: when the database has no channels, create `telegram-main`
- * with the current production settings of the Cloudflare Worker channel
- * (`wrangler.toml` + `defineChannels()`), paused and without credentials.
- * Operators enter credentials and resume the channel at the cutover gate.
+ * with the production settings of the retired Cloudflare Worker's channel
+ * (the same sources, prompt, AI, schedule, and limits `defineChannels()` builds
+ * for the Node CLI), paused and without credentials. Operators enter
+ * credentials and resume the channel at the cutover gate.
  *
  * The seeded channel is marked `cutoverRequired`: it cannot be resumed (or
  * otherwise start delivering) until its `notBefore` cutover instant is set,

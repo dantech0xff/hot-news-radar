@@ -59,7 +59,7 @@ export function PauseResumeButton({ channelId, channelName, status, size = 'sm' 
           {request.action === 'resume' ? (
             <Notice tone="warning" title="Kiểm tra trước khi resume">
               <p>Kênh cần đủ credential (Telegram bot token, chat ID và khoá AI) nếu không máy chủ sẽ từ chối.</p>
-              <p>Không để cùng một chat Telegram được đăng đồng thời từ Cloudflare Worker và dashboard này.</p>
+              <p>Không để cùng một chat Telegram được đăng đồng thời từ hai hệ thống (dashboard này và hệ thống khác).</p>
             </Notice>
           ) : null}
         </ControlDialog>
