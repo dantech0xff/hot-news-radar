@@ -4,6 +4,8 @@
 import { pathToFileURL } from 'node:url';
 
 import {
+  DEFAULT_GENERATION_TIMEOUT_MS,
+  DEFAULT_OUTPUT_TIMEOUT_MS,
   DeliveryStateMachine,
   FileCache,
   LocalFileDeliveryStore,
@@ -44,8 +46,6 @@ const CONTROL_FAILURE_STATES = new Set([
   'ambiguous', 'failed', 'generation_exhausted', 'needs_reconciliation',
   'output_exhausted', 'output_manual_retry_required', 'dead_letter', 'blocked_topology',
 ]);
-const DEFAULT_GENERATION_TIMEOUT_MS = 25_000;
-const DEFAULT_OUTPUT_TIMEOUT_MS = 25_000;
 const LOCAL_FORCE_ACTIONS_TABLE = 'local_force_actions';
 
 export function createCache(runtimeEnv = process.env) {

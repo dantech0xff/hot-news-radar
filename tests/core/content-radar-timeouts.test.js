@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { AIPlugin, OutputPlugin, SourcePlugin } from '../../src/core/contracts.js';
 import { ContentRadar } from '../../src/core/engine.js';
 import { MemoryDeliveryStore } from '../../src/core/delivery-store.js';
+import { DeliveryStateMachine } from '../../src/core/delivery-state-machine.js';
+import { TELEGRAM_REQUEST_TIMEOUT_MS } from '../../src/outputs/telegram.js';
 import { RecordingAI, RecordingOutput, RecordingSource } from '../helpers/fakes.js';
 
 const article = {
@@ -126,4 +128,25 @@ test('never-resolving output is aborted before its lease and becomes a manual am
   const replay = await engine.run({ requestId: 'output-timeout-request' });
   assert.equal(replay.status, 'ambiguous');
   assert.equal(output.calls, 1);
+});
+
+test('default time budgets nest so a provider can answer before its attempt lapses', () => {
+  const { attemptTimeoutMs, outputTimeoutMs, generationTimeoutMs } = new ContentRadar().options;
+
+  assert.ok(
+    TELEGRAM_REQUEST_TIMEOUT_MS < outputTimeoutMs,
+    'the engine must not abort a Telegram request before the request times out itself',
+  );
+  assert.ok(outputTimeoutMs < attemptTimeoutMs, 'an output call must finish inside its attempt lease');
+  assert.ok(generationTimeoutMs < attemptTimeoutMs, 'a generation call must finish inside its attempt lease');
+
+  const operatorMachine = new DeliveryStateMachine({
+    store: new MemoryDeliveryStore({ durable: true }),
+    channelId: 'telegram-main',
+  });
+  assert.equal(
+    operatorMachine.attemptTimeoutMs,
+    attemptTimeoutMs,
+    'operator retries grant the same lease as scheduled runs',
+  );
 });

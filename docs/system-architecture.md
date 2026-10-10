@@ -180,7 +180,7 @@ A maintenance job runs at most once a day:
 
 ### Shutdown
 
-On SIGTERM or SIGINT the app stops taking runs and ticks, waits up to `SHUTDOWN_WAIT_SECONDS` (default 120) for the run in flight, then ends event streams and closes the HTTP server. A run is never cut short: past the wait the process keeps renewing the lease until the run commits, then releases the lease, closes the database, and exits on its own. The container stop grace period must be at least the wait plus 15 s (135 s by default); a kill in the middle of a send leaves that output ambiguous for an operator to reconcile.
+On SIGTERM or SIGINT the app stops taking runs and ticks, waits up to `SHUTDOWN_WAIT_SECONDS` (default 120) for the run in flight, then ends event streams and closes the HTTP server. A run is never cut short: past the wait the process keeps renewing the lease until the run commits, then releases the lease, closes the database, and exits on its own. The container stop grace period must be at least the wait plus 15 s (135 s by default); a kill in the middle of a send leaves that output ambiguous for an operator to reconcile. A drip item's generation call (up to 25 s) and output call (up to 60 s) plus a source scan have to fit inside the wait, so keep it at 120 s or more.
 
 ## Run Modes
 

@@ -6,7 +6,9 @@ import { MemoryCache } from '../../src/core/caches.js';
 import { opaqueId } from '../../src/core/delivery.js';
 import { MemoryDeliveryStore } from '../../src/core/delivery-store.js';
 import { DeliveryStateMachine } from '../../src/core/delivery-state-machine.js';
+import { TelegramOutput } from '../../src/outputs/telegram.js';
 import { RecordingAI, RecordingOutput, RecordingSource } from '../helpers/fakes.js';
+import { jsonResponse, noDelay, sequenceFetch } from '../outputs/test-helpers.js';
 
 const article = {
   id: 'article-1',
@@ -93,6 +95,36 @@ test('ambiguous output does not mark articles complete and returns ambiguous', a
   assert.ok(ledger.activeDeliveryId);
   assert.equal(ledger.terminalState, null);
   assert.equal(await cache.peek(`digest:${result.publishingDay}`), null);
+});
+
+test('a Telegram connect failure retries automatically and never blocks the channel', async () => {
+  const refused = () => {
+    throw new TypeError('fetch failed', {
+      cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED', syscall: 'connect' }),
+    });
+  };
+  const transport = sequenceFetch([refused, jsonResponse(200, { ok: true, result: { message_id: 7 } })]);
+  const output = new TelegramOutput({
+    botToken: '123456:test-token',
+    chatId: '-1001',
+    fetch: transport.fetch,
+    sleep: noDelay,
+  });
+  let now = new Date('2026-07-20T10:00:00.000Z');
+  const { instance, store } = engine({ outputs: [output] });
+  instance.configure({ clock: () => new Date(now) });
+  const machine = new DeliveryStateMachine({ store, channelId: 'telegram-main' });
+
+  const first = await instance.run({ requestId: 'telegram-connect-failure' });
+  assert.equal(first.status, 'failed');
+  assert.equal((await machine.getChannelState()).mutationState, 'free');
+  assert.equal((await store.list('articles'))[0].terminalState, null);
+
+  now = new Date('2026-07-20T10:00:05.000Z');
+  const second = await instance.run({ requestId: 'telegram-connect-failure' });
+  assert.equal(second.status, 'success');
+  assert.equal(transport.calls.length, 2);
+  assert.equal((await store.list('articles'))[0].terminalState, 'succeeded');
 });
 
 test('safe partial delivery resumes only unresolved output with stored content', async () => {

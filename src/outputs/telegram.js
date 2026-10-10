@@ -20,6 +20,14 @@ import {
 const CAPTION_MAX = 1024;
 const NEWS_CAPTION_MAX = 700;
 
+/**
+ * Telegram downloads a photo URL itself before it answers, so a slow image host can hold one request
+ * open well past the shared 15 s default. A request cut off at its timeout may still have been posted;
+ * that outcome is ambiguous and blocks the channel until an operator reconciles it, so wait longer
+ * before giving up. Must stay below the engine's output budget (`DEFAULT_OUTPUT_TIMEOUT_MS`).
+ */
+export const TELEGRAM_REQUEST_TIMEOUT_MS = 45_000;
+
 export class TelegramOutput extends OutputPlugin {
   /**
    * @param {Object} config
@@ -28,13 +36,16 @@ export class TelegramOutput extends OutputPlugin {
    * @param {boolean} [config.disablePreview=true]
    * @param {boolean} [config.silent=false]
    * @param {Function} [config.fetch] - Injectable fetch transport
-   * @param {number} [config.timeoutMs=15000]
+   * @param {number} [config.timeoutMs=45000]
    * @param {Object} [dependencies] - Optional injected fetch/clock/timers
    */
   constructor(config, dependencies = {}) {
     super();
     this._config = { disablePreview: true, silent: false, ...config };
-    this._dependencies = createOutputDependencies(config, dependencies);
+    this._dependencies = createOutputDependencies(
+      { ...config, timeoutMs: config.timeoutMs ?? TELEGRAM_REQUEST_TIMEOUT_MS },
+      dependencies,
+    );
     this._deliveryKey = destinationDeliveryKey('telegram', config.chatId, config.deliveryKey);
   }
 
@@ -302,10 +313,13 @@ export class TelegramOutput extends OutputPlugin {
     const url = `https://api.telegram.org/bot${this._config.botToken}/${method}`;
 
     try {
+      // Never follow a redirect: one request is one hop, which is what lets a failed connect count
+      // as "never sent" (see `exceptionFailureResult`). A 3xx answer is classified as uncertain.
       const response = await fetchWithTimeout(this._dependencies.fetchImpl, url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        redirect: 'manual',
         signal,
       }, this._dependencies);
       const parsed = await readResponseBody(response);
@@ -348,7 +362,7 @@ export class TelegramOutput extends OutputPlugin {
 
       return invalidResponseResult('Telegram', { now: this._dependencies.now });
     } catch (error) {
-      return exceptionFailureResult(error, { now: this._dependencies.now });
+      return exceptionFailureResult(error, { now: this._dependencies.now, singleHop: true });
     }
   }
 }

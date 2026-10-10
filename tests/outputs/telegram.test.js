@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { TelegramOutput } from '../../src/outputs/telegram.js';
+import { TELEGRAM_REQUEST_TIMEOUT_MS, TelegramOutput } from '../../src/outputs/telegram.js';
 import {
   assertCanonicalResult,
   jsonResponse,
   noDelay,
   sequenceFetch,
+  textResponse,
 } from './test-helpers.js';
 
 const config = {
@@ -14,6 +15,15 @@ const config = {
   chatId: '-1009876543210',
   sleep: noDelay,
 };
+
+function systemError(code, syscall) {
+  return Object.assign(new Error(`${syscall} ${code}`), { code, syscall });
+}
+
+// fetch reports the real network error as the cause of a generic TypeError.
+function fetchFailed(cause) {
+  return new TypeError('fetch failed', { cause });
+}
 
 test('Telegram returns canonical success metadata and all message IDs', async () => {
   const transport = sequenceFetch([
@@ -137,6 +147,149 @@ test('Telegram aborts a never-resolving request and classifies it as ambiguous',
   assertCanonicalResult(result, 'ambiguous', 'manual');
   assert.equal(result.meta.providerCode, 'timeout');
   assert.equal(signal.aborted, true);
+});
+
+test('Telegram connection failures before the request is sent are definitive and retry automatically', async () => {
+  const cases = [
+    ['ECONNREFUSED', fetchFailed(systemError('ECONNREFUSED', 'connect'))],
+    ['ENOTFOUND', fetchFailed(systemError('ENOTFOUND', 'getaddrinfo'))],
+    ['EAI_AGAIN', fetchFailed(systemError('EAI_AGAIN', 'getaddrinfo'))],
+    ['ETIMEDOUT', fetchFailed(systemError('ETIMEDOUT', 'connect'))],
+    ['UND_ERR_CONNECT_TIMEOUT', fetchFailed(Object.assign(new Error('Connect Timeout Error'), {
+      code: 'UND_ERR_CONNECT_TIMEOUT',
+    }))],
+    // A host with several addresses fails with one error per address.
+    ['ETIMEDOUT', fetchFailed(Object.assign(
+      new AggregateError([systemError('ETIMEDOUT', 'connect'), systemError('ENETUNREACH', 'connect')]),
+      { code: 'ETIMEDOUT' },
+    ))],
+  ];
+
+  for (const [providerCode, failure] of cases) {
+    const transport = sequenceFetch([() => { throw failure; }]);
+    const output = new TelegramOutput({ ...config, fetch: transport.fetch });
+
+    const result = await output.send('hello');
+
+    assertCanonicalResult(result, 'definitive_failure', 'automatic');
+    assert.equal(result.meta.providerCode, providerCode);
+    assert.equal(transport.calls.length, 1);
+  }
+});
+
+test('Telegram failures that may have reached Telegram stay ambiguous', async () => {
+  const cases = [
+    ['connection reset mid-request', fetchFailed(systemError('ECONNRESET', 'read')), 'network_error'],
+    ['timeout on an established connection', fetchFailed(systemError('ETIMEDOUT', 'read')), 'network_error'],
+    // An established connection can report these from `read` after the request was already written.
+    ['EHOSTUNREACH on an established connection', fetchFailed(systemError('EHOSTUNREACH', 'read')), 'network_error'],
+    ['ENETUNREACH on an established connection', fetchFailed(systemError('ENETUNREACH', 'read')), 'network_error'],
+    ['connect code without its syscall', fetchFailed(Object.assign(new Error('refused'), {
+      code: 'ECONNREFUSED',
+    })), 'network_error'],
+    ['unknown code without a syscall', fetchFailed(Object.assign(new Error('unknown'), {
+      code: 'EWHATEVER',
+    })), 'network_error'],
+    ['socket closed by the other side', fetchFailed(Object.assign(new Error('other side closed'), {
+      code: 'UND_ERR_SOCKET',
+    })), 'network_error'],
+    ['one address refused and one reset', fetchFailed(new AggregateError([
+      systemError('ECONNREFUSED', 'connect'),
+      systemError('ECONNRESET', 'read'),
+    ])), 'network_error'],
+    ['fetch failed without a cause', new TypeError('fetch failed'), 'network_error'],
+    ['unclassified error', new Error('boom'), 'network_error'],
+    ['abort', new DOMException('This operation was aborted', 'AbortError'), 'aborted'],
+    ['abort wrapping a connect error', new DOMException('This operation was aborted', {
+      name: 'AbortError',
+      cause: systemError('ECONNREFUSED', 'connect'),
+    }), 'aborted'],
+  ];
+
+  for (const [label, failure, providerCode] of cases) {
+    const transport = sequenceFetch([() => { throw failure; }]);
+    const output = new TelegramOutput({ ...config, fetch: transport.fetch });
+
+    const result = await output.send('hello');
+
+    assertCanonicalResult(result, 'ambiguous', 'manual');
+    assert.equal(result.meta.providerCode, providerCode, label);
+    assert.equal(transport.calls.length, 1, label);
+  }
+});
+
+test('Telegram connection failure after the first message part stays ambiguous', async () => {
+  const transport = sequenceFetch([
+    jsonResponse(200, { ok: true, result: { message_id: 31 } }),
+    () => { throw fetchFailed(systemError('ECONNREFUSED', 'connect')); },
+  ]);
+  const output = new TelegramOutput({ ...config, fetch: transport.fetch });
+  const content = ['a'.repeat(4090), 'b'.repeat(4090)].join('\n\n');
+
+  const result = await output.send(content);
+
+  assertCanonicalResult(result, 'ambiguous', 'manual');
+  assert.equal(result.messageId, '31');
+  assert.deepEqual(result.meta.successfulMessageIds, ['31']);
+  assert.equal(transport.calls.length, 2);
+});
+
+test('Telegram connection failure after a posted photo stays ambiguous', async () => {
+  const transport = sequenceFetch([
+    jsonResponse(200, { ok: true, result: { message_id: 61 } }),
+    () => { throw fetchFailed(systemError('ECONNREFUSED', 'connect')); },
+  ]);
+  const output = new TelegramOutput({ ...config, fetch: transport.fetch });
+
+  const result = await output.send('x'.repeat(1500), {
+    articles: [{ imageUrl: 'https://example.test/image.png' }],
+  });
+
+  assertCanonicalResult(result, 'ambiguous', 'manual');
+  assert.equal(result.messageId, '61');
+  assert.deepEqual(result.meta.successfulMessageIds, ['61']);
+  assert.equal(transport.calls.length, 2);
+});
+
+test('Telegram connection failure on the plain-caption retry is retryable because nothing was posted', async () => {
+  const transport = sequenceFetch([
+    jsonResponse(400, { ok: false, error_code: 400, description: "Bad Request: can't parse entities" }),
+    () => { throw fetchFailed(systemError('ECONNREFUSED', 'connect')); },
+  ]);
+  const output = new TelegramOutput({ ...config, fetch: transport.fetch });
+
+  const result = await output.send('caption', { article: { imageUrl: 'https://example.test/image.png' } });
+
+  assertCanonicalResult(result, 'definitive_failure', 'automatic');
+  assert.equal(result.meta.fallbackAttempted, true);
+  assert.equal(transport.calls.length, 2);
+});
+
+test('Telegram never follows a redirect and treats a redirect answer as uncertain', async () => {
+  const transport = sequenceFetch([
+    textResponse(307, '', { Location: 'https://elsewhere.example/hook' }),
+  ]);
+  const output = new TelegramOutput({ ...config, fetch: transport.fetch });
+
+  const result = await output.send('hello');
+
+  assert.equal(transport.calls[0].init.redirect, 'manual');
+  assertCanonicalResult(result, 'ambiguous', 'manual');
+  assert.equal(transport.calls.length, 1);
+});
+
+test('Telegram waits its own request timeout by default and honors an explicit one', async () => {
+  const delays = [];
+  const timers = {
+    setTimeout: (_callback, ms) => { delays.push(ms); return delays.length; },
+    clearTimeout: () => {},
+  };
+  const sent = () => sequenceFetch([jsonResponse(200, { ok: true, result: { message_id: 1 } })]).fetch;
+
+  await new TelegramOutput({ ...config, ...timers, fetch: sent() }).send('hello');
+  await new TelegramOutput({ ...config, ...timers, timeoutMs: 1234, fetch: sent() }).send('hello');
+
+  assert.deepEqual(delays, [TELEGRAM_REQUEST_TIMEOUT_MS, 1234]);
 });
 
 test('Telegram 429 is a definitive automatic retry with bounded timing metadata', async () => {

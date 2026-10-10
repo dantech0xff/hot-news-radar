@@ -26,6 +26,9 @@ export {
   assertDeliveryStore,
 } from './delivery-store.js';
 export {
+  DEFAULT_ATTEMPT_TIMEOUT_MS,
+  DEFAULT_GENERATION_TIMEOUT_MS,
+  DEFAULT_OUTPUT_TIMEOUT_MS,
   DeliveryStateMachine,
   assertDeliveryTransition,
   deliveryTransitions,

@@ -9,7 +9,12 @@ import {
   sanitizeError,
 } from './delivery.js';
 import { assertDeliveryStore } from './delivery-store.js';
-import { DeliveryStateMachine } from './delivery-state-machine.js';
+import {
+  DEFAULT_ATTEMPT_TIMEOUT_MS,
+  DEFAULT_GENERATION_TIMEOUT_MS,
+  DEFAULT_OUTPUT_TIMEOUT_MS,
+  DeliveryStateMachine,
+} from './delivery-state-machine.js';
 import { excludeCoveredStories, pickDistinctStories } from './story-dedup.js';
 
 const DEFAULT_DRIP_DAILY_LIMIT = 18;
@@ -45,10 +50,10 @@ export class ContentRadar {
       maxRetries: 2,
       maxGenerationAttempts: 3,
       maxOutputAttempts: 3,
-      attemptTimeoutMs: 30_000,
+      attemptTimeoutMs: DEFAULT_ATTEMPT_TIMEOUT_MS,
       sourceTimeoutMs: 15_000,
-      generationTimeoutMs: 25_000,
-      outputTimeoutMs: 25_000,
+      generationTimeoutMs: DEFAULT_GENERATION_TIMEOUT_MS,
+      outputTimeoutMs: DEFAULT_OUTPUT_TIMEOUT_MS,
       language: 'vi',
       secondaryLanguage: null,
       style: 'digest',

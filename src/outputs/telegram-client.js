@@ -1,4 +1,20 @@
 const DEFAULT_TIMEOUT_MS = 15_000;
+// Errno codes that prove a request never left this process, each paired with the syscall that must
+// have raised it: name resolution or the TCP connect failed, so the provider cannot have seen the
+// request. The syscall matters because an established connection can report ENETUNREACH or
+// EHOSTUNREACH from `read` after the request was written. Resets, read timeouts, and closed sockets
+// are deliberately absent; they can happen after the provider already acted.
+const CONNECT_PHASE_SYSCALLS = new Map([
+  ['ECONNREFUSED', 'connect'],
+  ['ENETUNREACH', 'connect'],
+  ['EHOSTUNREACH', 'connect'],
+  ['ETIMEDOUT', 'connect'],
+  ['ENOTFOUND', 'getaddrinfo'],
+  ['EAI_AGAIN', 'getaddrinfo'],
+]);
+// undici and Node raise these themselves while connecting, so they carry no syscall.
+const CONNECT_PHASE_CODES = new Set(['UND_ERR_CONNECT_TIMEOUT', 'ERR_SOCKET_CONNECTION_TIMEOUT']);
+const MAX_CAUSE_DEPTH = 4;
 const MAX_ERROR_LENGTH = 240;
 const MAX_RESPONSE_BODY_BYTES = 8_192;
 const MAX_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -279,9 +295,29 @@ export function httpFailureResult({
   });
 }
 
-export function exceptionFailureResult(error, { now = Date.now, meta } = {}) {
+/**
+ * Classify a request that threw. A timeout or abort may have happened after the provider acted, so it
+ * stays ambiguous. A failure to connect never reached the provider, so it is a definitive failure that
+ * is safe to retry automatically; leaving it ambiguous would block the channel until an operator steps in.
+ *
+ * That holds only for `singleHop` callers, whose one request is never redirected: after a followed
+ * redirect, a connect failure on the second hop says nothing about whether the first hop already
+ * processed the request. Every other caller keeps treating any thrown error as ambiguous.
+ */
+export function exceptionFailureResult(error, { now = Date.now, meta, singleHop = false } = {}) {
   const timeout = error instanceof OutputTimeoutError || error?.code === 'timeout';
   const aborted = !timeout && (error?.name === 'AbortError' || error?.code === 'ABORT_ERR');
+  const connectCode = timeout || aborted || !singleHop ? null : connectPhaseCode(error);
+  if (connectCode) {
+    return failureResult({
+      deliveryState: 'definitive_failure',
+      retryDisposition: 'automatic',
+      error: 'Provider connection failed before the request was sent',
+      providerCode: connectCode,
+      now,
+      meta,
+    });
+  }
   return failureResult({
     deliveryState: 'ambiguous',
     retryDisposition: 'manual',
@@ -294,6 +330,23 @@ export function exceptionFailureResult(error, { now = Date.now, meta } = {}) {
     now,
     meta,
   });
+}
+
+/**
+ * The error code when `error` proves the request never left this process, otherwise null. `fetch`
+ * wraps the real error as `cause` (`TypeError: fetch failed`), and a host with several addresses
+ * reports an AggregateError holding one error per address; every one of those must be pre-send.
+ */
+function connectPhaseCode(error, depth = 0) {
+  if (!error || typeof error !== 'object' || depth > MAX_CAUSE_DEPTH) return null;
+  if (Array.isArray(error.errors) && error.errors.length > 0) {
+    const codes = error.errors.map(entry => connectPhaseCode(entry, depth + 1));
+    return codes.every(Boolean) ? codes[0] : null;
+  }
+  const { code } = error;
+  const requiredSyscall = CONNECT_PHASE_SYSCALLS.get(code);
+  if (CONNECT_PHASE_CODES.has(code) || (requiredSyscall !== undefined && error.syscall === requiredSyscall)) return code;
+  return connectPhaseCode(error.cause, depth + 1);
 }
 
 export function invalidResponseResult(provider, options = {}) {

@@ -30,9 +30,10 @@ export const DEFAULT_LEASE_TTL_MS = 60_000;
 export const DEFAULT_HEARTBEAT_MS = 15_000;
 /**
  * How long `stop()` waits for work in flight by default. It covers one drip
- * item end to end (generation and output steps of up to 25 s each, plus store
- * commits) with room for a source scan; the container stop grace period must
- * be longer (see `SHUTDOWN_WAIT_SECONDS` in `config/env.js`).
+ * item end to end (generation up to `DEFAULT_GENERATION_TIMEOUT_MS` and output
+ * up to `DEFAULT_OUTPUT_TIMEOUT_MS`, plus store commits) with room for a source
+ * scan; the container stop grace period must be longer (see
+ * `SHUTDOWN_WAIT_SECONDS` in `config/env.js`).
  */
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 120_000;
 

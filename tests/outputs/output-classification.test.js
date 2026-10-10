@@ -176,6 +176,18 @@ test('HTTP classification matrix distinguishes rejection, throttling, and uncert
       disposition: 'manual',
       providerCode: 'network_error',
     },
+    {
+      // This output follows redirects, so a failed connect may be the second hop of a request the
+      // first hop already processed; only single-hop outputs (Telegram) may call it "never sent".
+      response: () => {
+        throw new TypeError('fetch failed', {
+          cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED', syscall: 'connect' }),
+        });
+      },
+      state: 'ambiguous',
+      disposition: 'manual',
+      providerCode: 'network_error',
+    },
   ];
 
   for (const scenario of cases) {

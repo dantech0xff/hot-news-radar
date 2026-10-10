@@ -4,9 +4,13 @@ import assert from 'node:assert/strict';
 import { ContentRadar } from '../../src/core/engine.js';
 import { DeliveryStateMachine } from '../../src/core/delivery-state-machine.js';
 import { MemoryDeliveryStore } from '../../src/core/delivery-store.js';
+import { TelegramOutput } from '../../src/outputs/telegram.js';
 import { RecordingAI, RecordingOutput, RecordingSource } from '../helpers/fakes.js';
+import { jsonResponse, noDelay, sequenceFetch } from '../outputs/test-helpers.js';
 
 const SCAN_INTERVAL_MS = 15 * 60 * 1_000;
+// A scan claim lasts at least one attempt lease; this lands just past it for the single-source engines below.
+const SCAN_CLAIM_EXPIRY_MS = new ContentRadar().options.attemptTimeoutMs + 1_000;
 
 const article = {
   id: 'drip-1',
@@ -390,7 +394,7 @@ test('a scan that loses its expired claim mid-fetch creates no deliveries', asyn
 
   const lateScan = slowEngine.runDrip({ batchSize: 1, requestId: 'late-scan' });
   await slowStarted;
-  time.advance(31_000);
+  time.advance(SCAN_CLAIM_EXPIRY_MS);
   const takeover = await fastEngine.runDrip({ batchSize: 1, requestId: 'takeover-scan' });
   assert.equal(takeover.status, 'success');
   releaseSlow();
@@ -492,7 +496,7 @@ test('restart adopts scan deliveries persisted before linkage and closes the exp
   assert.equal((await store.list('deliveries')).length, 2);
   assert.equal((await store.list('batch_items')).length, 1);
 
-  time.advance(31_000);
+  time.advance(SCAN_CLAIM_EXPIRY_MS);
   const recoveredOutput = new RecordingOutput();
   const recovered = radar({ store, source, output: recoveredOutput, options: { clock: time.clock } });
   const result = await recovered.runDrip({ batchSize: 1, requestId: 'recover-scan-orphan' });
@@ -520,6 +524,41 @@ test('an automatically retrying item that fills the batch skips scanning', async
   assert.equal(retried.articles[0].article, 'Drip survives failure');
   assert.equal(source.calls, 1);
   assert.equal(output.calls.length, 2);
+});
+
+test('repeated Telegram connect failures exhaust one item without blocking the channel', async () => {
+  const refused = () => {
+    throw new TypeError('fetch failed', {
+      cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED', syscall: 'connect' }),
+    });
+  };
+  const transport = sequenceFetch([refused, refused, refused, jsonResponse(200, { ok: true, result: { message_id: 9 } })]);
+  const output = new TelegramOutput({
+    botToken: '123456:test-token',
+    chatId: '-1001',
+    fetch: transport.fetch,
+    sleep: noDelay,
+  });
+  const store = new MemoryDeliveryStore({ durable: true });
+  const time = mutableClock();
+  const source = new RecordingSource([article]);
+  const engine = radar({ store, source, output, options: { clock: time.clock } });
+  const machine = new DeliveryStateMachine({ store, channelId: 'telegram-main' });
+
+  // Every run retries the same item automatically; the third failed attempt exhausts it.
+  for (const requestId of ['connect-1', 'connect-2', 'connect-3']) {
+    assert.equal((await engine.runDrip({ batchSize: 1, requestId })).status, 'failed');
+    assert.equal((await machine.getChannelState()).mutationState, 'free');
+    time.advance(SCAN_INTERVAL_MS);
+  }
+  assert.equal((await store.list('deliveries'))[0].state, 'output_exhausted');
+
+  // The exhausted item waits for an operator, and the next scan still posts newer content.
+  source.articles = [article, story('later', 'Later item')];
+  const later = await engine.runDrip({ batchSize: 1, requestId: 'connect-4' });
+  assert.equal(later.status, 'success');
+  assert.equal(later.articles[0].article, 'Later item');
+  assert.equal(transport.calls.length, 4);
 });
 
 test('a scan error after claiming still delivers queued items and backs off', async (t) => {

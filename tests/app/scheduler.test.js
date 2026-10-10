@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { runAppMigrations } from '../../src/app/db/app-migrations.js';
 import { createNodeSqlStorage } from '../../src/app/db/node-sql-storage.js';
 import { RuntimeLease } from '../../src/app/db/runtime-lease.js';
-import { RuntimeScheduler } from '../../src/app/runtime/scheduler.js';
+import { DEFAULT_SHUTDOWN_TIMEOUT_MS, RuntimeScheduler } from '../../src/app/runtime/scheduler.js';
+import { ContentRadar } from '../../src/core/engine.js';
 import { FakeCron, FakeTimers, mutableClock } from './helpers/runtime-fixture.js';
 import { createTempDataDir } from './helpers/temp-data-dir.js';
 
@@ -372,4 +373,14 @@ test('scheduler options are validated', async t => {
   assert.throws(() => new RuntimeScheduler({ ...base, cron: {} }), TypeError);
   assert.throws(() => new RuntimeScheduler({ ...base, executeRun: null }), TypeError);
   assert.throws(() => new RuntimeScheduler({ ...base, leaseTtlMs: 10_000, heartbeatMs: 10_000 }), TypeError);
+});
+
+test('the default shutdown wait covers one drip item and still leaves room for a source scan', () => {
+  const { generationTimeoutMs, outputTimeoutMs } = new ContentRadar().options;
+  const sourceScanRoomMs = 30_000;
+
+  assert.ok(
+    generationTimeoutMs + outputTimeoutMs + sourceScanRoomMs <= DEFAULT_SHUTDOWN_TIMEOUT_MS,
+    'a deploy would otherwise stop the process in the middle of a send',
+  );
 });

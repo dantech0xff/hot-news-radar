@@ -45,6 +45,20 @@ const TRANSITIONS = Object.freeze({
   },
 });
 
+/**
+ * Default time budgets for one attempt. An output or generation call has to finish inside the lease
+ * that guards it: a call still running when its lease lapses is recovered as ambiguous, and an
+ * ambiguous output blocks the whole channel until an operator reconciles it. So the budgets nest,
+ * output (and generation) call < attempt lease, and the output call outlasts a provider's own
+ * per-request timeout, which would otherwise be cut off by the engine before it can answer.
+ * They must also leave room, inside the shutdown wait, for a source scan: a deploy that kills the
+ * process in the middle of a send leaves that output ambiguous.
+ * The engine, this state machine, and operator retries all read these so they cannot drift apart.
+ */
+export const DEFAULT_ATTEMPT_TIMEOUT_MS = 90_000;
+export const DEFAULT_GENERATION_TIMEOUT_MS = 25_000;
+export const DEFAULT_OUTPUT_TIMEOUT_MS = 60_000;
+
 const TERMINAL_DELIVERY_STATES = new Set(['succeeded', 'abandoned']);
 const TERMINAL_OUTPUT_STATES = new Set(['succeeded', 'abandoned']);
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -57,7 +71,7 @@ export class DeliveryStateMachine {
     store,
     channelId,
     clock = () => new Date(),
-    attemptTimeoutMs = 30_000,
+    attemptTimeoutMs = DEFAULT_ATTEMPT_TIMEOUT_MS,
     maxGenerationAttempts = 3,
     maxOutputAttempts = 3,
     allowEphemeral = false,
