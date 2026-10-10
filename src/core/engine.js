@@ -1,6 +1,7 @@
 import { AIPlugin, CachePlugin, OutputPlugin, SourcePlugin } from './contracts.js';
 import {
   aggregateSendResults,
+  buildOutputTopology,
   channelArticleHash,
   normalizeSendResult,
   opaqueId,
@@ -20,6 +21,7 @@ import { excludeCoveredStories, pickDistinctStories } from './story-dedup.js';
 const DEFAULT_DRIP_DAILY_LIMIT = 18;
 const DEFAULT_SCAN_INTERVAL_MINUTES = 15;
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const RECONCILE_OPERATOR_ID = 'auto-reconcile';
 
 const NON_TERMINAL_DELIVERY_STATES = new Set([
   'pending_generation', 'generating', 'generation_retry_pending',
@@ -54,6 +56,8 @@ export class ContentRadar {
       sourceTimeoutMs: 15_000,
       generationTimeoutMs: DEFAULT_GENERATION_TIMEOUT_MS,
       outputTimeoutMs: DEFAULT_OUTPUT_TIMEOUT_MS,
+      // An output's own lookup makes up to four small requests (the Telegram client allows 8 s for each).
+      reconcileLookupTimeoutMs: 40_000,
       language: 'vi',
       secondaryLanguage: null,
       style: 'digest',
@@ -136,6 +140,7 @@ export class ContentRadar {
       if (channel?.paused && !isAuthorizedPausedMutation(runOptions)) {
         return pausedRunResult({ publishingDay, mode: 'digest' });
       }
+      await this._reconcileAmbiguousOutput(machine);
       await this._drainMaintenance(machine);
     }
     let sourceHealth = null;
@@ -383,6 +388,7 @@ export class ContentRadar {
     if (channel?.paused && !isAuthorizedPausedMutation(runOptions)) {
       return pausedRunResult({ publishingDay, mode: 'drip' });
     }
+    await this._reconcileAmbiguousOutput(machine);
     await this._drainMaintenance(machine);
     if (force) {
       return this._runForcedDrip({ machine, runOptions, publishingDay, startedAt });
@@ -1144,6 +1150,108 @@ export class ContentRadar {
       }
     }
     return { succeeded, failed };
+  }
+
+  /**
+   * An output that ended ambiguous blocks its channel until someone proves what happened. When the
+   * destination itself can show the post arrived (`OutputPlugin.findDelivered`), confirm the output
+   * through the same audited path an operator uses and let the run continue. Nothing is ever sent
+   * here, and any doubt (no proof, a changed destination, an error) leaves the output ambiguous; a
+   * block that stays is reported to the optional `onChannelBlocked` observer.
+   * @returns {Promise<boolean>} true when an ambiguous output was confirmed
+   */
+  async _reconcileAmbiguousOutput(machine) {
+    let block = null;
+    try {
+      block = await this._blockingOutput(machine);
+      if (!block) return false;
+      if (await this._confirmFromDestination(machine, block)) return true;
+    } catch (error) {
+      // Includes losing a race with an operator who confirmed the same output first.
+      console.warn('[Reconcile] Could not confirm an ambiguous send', {
+        channelId: this.options.channelId,
+        error: sanitizeError(error),
+      });
+    }
+    if (block) await this._reportBlockedChannel(machine, block);
+    return false;
+  }
+
+  /** The attempt, delivery, and output that hold an `ambiguous` block on this channel, or null. */
+  async _blockingOutput(machine) {
+    const channel = await machine.getChannelState();
+    // A paused channel is deliberately idle, so it is neither reconciled nor reported.
+    if (channel?.paused || channel?.mutationState !== 'blocked_ambiguous' || !channel.activeOutputAttemptId) return null;
+    const attempt = await machine.getAttempt(channel.activeOutputAttemptId);
+    if (attempt?.kind !== 'output') return null;
+    const [delivery, output] = await Promise.all([
+      machine.getDelivery(attempt.deliveryId),
+      machine.getOutput(attempt.deliveryId, attempt.outputKey),
+    ]);
+    if (!delivery || output?.state !== 'needs_reconciliation' || output.activeAttemptId !== attempt.attemptId) return null;
+    return { attempt, delivery, output };
+  }
+
+  async _confirmFromDestination(machine, { attempt, delivery, output }) {
+    // Earlier parts of a multi-part send are certain, so a post carrying the link says nothing about the rest.
+    if (output.partialMutation) return false;
+    // Only look in the destination the ambiguous attempt used: a changed topology proves nothing.
+    const topology = await buildOutputTopology(this.outputs);
+    const configured = topology.outputs[output.ordinal];
+    if (delivery.topologyFingerprint !== topology.fingerprint
+      || configured?.outputKey !== output.outputKey
+      || configured.providerId !== output.providerId) return false;
+
+    const plugin = this.outputs[output.ordinal];
+    // The post can only have been made while the attempt ran; a later post of the same link is not it.
+    const deadline = Date.parse(attempt.deadlineAt);
+    const ended = Date.parse(attempt.completedAt ?? attempt.deadlineAt);
+    const found = await withOperationTimeout(signal => plugin.findDelivered({
+      articles: delivery.articleSnapshot,
+      since: new Date(attempt.startedAt),
+      until: new Date(Math.min(ended, deadline)),
+      signal,
+    }), positiveInteger(this.options.reconcileLookupTimeoutMs, 'reconcileLookupTimeoutMs'), `Reconcile ${plugin.id}`);
+    if (!found?.messageId) return false;
+
+    await machine.reconcile({
+      action: 'confirm-delivered',
+      deliveryId: delivery.deliveryId,
+      outputKey: output.outputKey,
+      expectedVersion: output.version,
+      operatorId: RECONCILE_OPERATOR_ID,
+      reason: `The destination shows the post (message ${found.messageId}); confirmed without sending again`,
+      idempotencyKey: `${RECONCILE_OPERATOR_ID}:${attempt.attemptId}`,
+      messageId: found.messageId,
+    });
+    this.logger(`[Reconcile] ${this.options.channelId}: confirmed an ambiguous send as delivered (message ${found.messageId})`);
+    return true;
+  }
+
+  /**
+   * Tell the optional `onChannelBlocked` observer that this channel stays blocked after a reconcile
+   * attempt, so a person can step in. Failures are logged, never raised.
+   */
+  async _reportBlockedChannel(machine, { attempt, delivery }) {
+    const observer = this.options.onChannelBlocked;
+    if (typeof observer !== 'function') return;
+    try {
+      // An operator may have confirmed it while the lookup ran; only a block that still stands is news.
+      const channel = await machine.getChannelState();
+      if (channel?.mutationState !== 'blocked_ambiguous' || channel.activeOutputAttemptId !== attempt.attemptId) return;
+      const article = delivery.articleSnapshot?.[0];
+      await observer({
+        channelId: this.options.channelId,
+        attemptId: attempt.attemptId,
+        deliveryId: delivery.deliveryId,
+        article: article ? { title: article.title, url: article.url } : null,
+      });
+    } catch (error) {
+      console.warn('[Reconcile] Blocked-channel observer failed', {
+        channelId: this.options.channelId,
+        error: sanitizeError(error),
+      });
+    }
   }
 
   async _validateMutation() {

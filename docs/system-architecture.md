@@ -250,7 +250,7 @@ The seeded `telegram-main` was created to take over from the Worker, so it must 
 - AI generation is required before output delivery
 - outputs are sequential with durable acknowledgement between calls
 - stale attempts become recoverable states rather than disappearing
-- ambiguous output is not automatically resent
+- ambiguous output is not automatically resent; the next run confirms it only when the destination proves the post arrived (`OutputPlugin.findDelivered`), through the same audited path as an operator's `confirm-delivered`
 - matching output configuration never auto-clears `blocked_topology`; an operator must invoke `restore-topology` or `abandon`
 - paused channels do not accept new claims unless an audited paused-mutation override is supplied
 - legacy compatibility replay is separate from authoritative delivery commits
@@ -265,7 +265,7 @@ The Node CLI relies on:
 - `DELIVERY_STORE_PATH`
 - `CACHE_TYPE` and `CACHE_PATH`
 
-The dashboard app reads `DATA_DIR`, `APP_MASTER_KEY`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `APP_OPERATOR_EMAILS`, `APP_VIEWER_EMAILS`, `APP_SERVICE_TOKEN_ROLES`, `PUBLIC_ORIGIN`, `CACHE_PATH` (default `DATA_DIR/news.json`; `CACHE_TYPE` must be `file` or unset), `CONTENT_SCAN_RETENTION_DAYS`, `RUN_HISTORY_RETENTION_DAYS`, `SHUTDOWN_WAIT_SECONDS`, `HOST`, `PORT`, `NEWS_BUILD_VERSION`, and the development-only `ACCESS_JWKS_FILE`. `src/app/config/env.js` owns the rules; `.env.example` shows placeholders.
+The dashboard app reads `DATA_DIR`, `APP_MASTER_KEY`, `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `APP_OPERATOR_EMAILS`, `APP_VIEWER_EMAILS`, `APP_SERVICE_TOKEN_ROLES`, `PUBLIC_ORIGIN`, `CACHE_PATH` (default `DATA_DIR/news.json`; `CACHE_TYPE` must be `file` or unset), `CONTENT_SCAN_RETENTION_DAYS`, `RUN_HISTORY_RETENTION_DAYS`, `SHUTDOWN_WAIT_SECONDS`, `ALERT_TELEGRAM_CHAT_ID`, `HOST`, `PORT`, `NEWS_BUILD_VERSION`, and the development-only `ACCESS_JWKS_FILE`. `src/app/config/env.js` owns the rules; `.env.example` shows placeholders.
 
 ## Operational Boundaries
 

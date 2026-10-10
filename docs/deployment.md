@@ -77,6 +77,7 @@ Environment (names only; values are never committed or printed):
 | `APP_SERVICE_TOKEN_ROLES` | `<client-id>:operator` for the Access service token in `CF_ACCESS_CLIENT_ID`, written by the deploy |
 | `PUBLIC_ORIGIN` | `https://<hostname>` |
 | `CONTENT_SCAN_RETENTION_DAYS`, `RUN_HISTORY_RETENTION_DAYS`, `SHUTDOWN_WAIT_SECONDS` | Optional; defaults 30, 180, and 120 |
+| `ALERT_TELEGRAM_CHAT_ID` | Optional. A numeric chat id or an `@username` that gets one Telegram message, sent through the channel's own bot, when a channel stays blocked by an ambiguous send the app could not confirm itself. The bot must have been started in that chat. Unset turns alerts off; it is applied by the next deploy, not by the dashboard |
 
 Dokploy's `saveEnvironment` replaces the whole environment string, and environment, mount, and Swarm changes apply only on the next deploy. Every channel starts paused, so deploying never posts anything.
 

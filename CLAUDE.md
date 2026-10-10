@@ -118,7 +118,9 @@ get id → string
 get name → string
 get maxLength → number (default Infinity)
 send(content, options?) → Promise<{ success, messageId?, error?, meta? }>
+findDelivered({ articles, since, signal }) → Promise<{ messageId } | null>   (optional; default null)
 ```
+`findDelivered` lets the engine confirm an ambiguous send without resending: return `{ messageId }` only on positive proof the post reached the destination, otherwise null.
 
 ### CachePlugin (caches must implement)
 ```
@@ -280,7 +282,8 @@ npm run docker:build && npm run docker:run
 | `ai/openai-compat.js` | `OpenAICompatibleAI`, `openai()`, `groq()`, `gemini()`, `ollama()`, `openRouter()`, `togetherAI()` | One class, many providers |
 | `ai/create-ai.js` | `createAI()` | Shared factory for all adapters |
 | `ai/_prompts.js` | `buildPrompt()`, `PROMPT_STYLES`, `PROMPT_LANGUAGES` | Editorial prompts with audience, grouping, 6 styles, `vi`/`en`, custom system prompt |
-| `outputs/telegram.js` | `TelegramOutput` | Auto-split, markdown fallback |
+| `outputs/telegram.js` | `TelegramOutput`, `TELEGRAM_REQUEST_TIMEOUT_MS` | Auto-split, markdown fallback, 45 s request timeout, `findDelivered` through the public preview |
+| `outputs/telegram-preview.js` | `findPostByLink()`, `parsePreviewMessages()`, `comparableLink()` | Reads `t.me/s/<username>` to prove a post reached a public channel |
 | `outputs/channels.js` | `SlackOutput`, `DiscordOutput`, `EmailOutput`, `WebhookOutput`, `MarkdownFileOutput` | All extend OutputPlugin |
 | `presets/index.js` | `bigTechBlogs()`, `communitySources()`, `aiMLBlogs()`, `aiNewsSources()`, `aiDeepDiveSources()`, `devopsSources()`, `mobileSources()` | Return SourcePlugin[] |
 | `channels/runner.js` | `buildEngine()`, `runChannels()`, `createDefaultMiddlewares()`, `listUnresolvedTargets()`, `sanitizeRuntimeError()`, `shouldRun()` | Shared by the CLI and the dashboard app |
@@ -334,6 +337,7 @@ PUBLIC_ORIGIN=           # exact origin users open
 CONTENT_SCAN_RETENTION_DAYS=30
 RUN_HISTORY_RETENTION_DAYS=180
 SHUTDOWN_WAIT_SECONDS=120   # container stop grace ≥ this + 15 s
+ALERT_TELEGRAM_CHAT_ID=  # optional: chat id or @username told once when a channel stays blocked by an unconfirmed send
 ACCESS_JWKS_FILE=        # development only; needs NODE_ENV=development or test
 ```
 

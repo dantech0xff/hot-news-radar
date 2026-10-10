@@ -175,11 +175,12 @@ export class ChannelRunExecutor {
    *   events: import('./events.js').RuntimeEvents,
    *   clock?: () => Date,
    *   logger?: Pick<Console, 'log'|'warn'|'error'>,
+   *   alerts?: import('./alerts.js').BlockedChannelAlerts|null,
    * }} options
    */
   constructor({
     channels, buildChannel, deliveryStore, cache, runs, content, contentSync, pauseChannel, events,
-    clock = () => new Date(), logger = console,
+    clock = () => new Date(), logger = console, alerts = null,
   }) {
     this._channels = channels;
     this._buildChannel = buildChannel;
@@ -192,6 +193,7 @@ export class ChannelRunExecutor {
     this._events = events;
     this._clock = clock;
     this._logger = logger;
+    this._alerts = alerts;
   }
 
   /**
@@ -296,6 +298,8 @@ export class ChannelRunExecutor {
       const engine = buildEngine(ch, { ...dependencies, middlewares: createAppMiddlewares(ch, { recorder }) });
       // Radar scans skip already-delivered stories before the stage chain; record them as duplicates.
       engine.configure({ onCoveredStoriesExcluded: articles => recorder.observeExcluded(articles, 'duplicate') });
+      // A channel blocked by an ambiguous send the engine could not confirm needs a person; tell them once.
+      if (this._alerts?.enabled) engine.configure({ onChannelBlocked: block => this._alerts.channelBlocked(ch, block) });
       // Keep the engine's full result: runChannels() projects away source health and outputs.
       return {
         run: async options => (raw = await engine.run(options)),

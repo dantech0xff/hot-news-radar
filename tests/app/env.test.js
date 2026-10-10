@@ -35,6 +35,7 @@ test('defaults fill host, port, cache path, and retention', () => {
   assert.deepEqual(config.retention, { contentScanDays: 30, runHistoryDays: 180 });
   assert.equal(config.production, false);
   assert.equal(config.buildVersion, null);
+  assert.equal(config.alertChatId, null);
   assert.deepEqual(config.access, {
     teamDomain: 'https://team.cloudflareaccess.com',
     issuer: 'https://team.cloudflareaccess.com',
@@ -178,4 +179,16 @@ test('the master key never appears when the config is serialized or inspected', 
   assert.equal(JSON.stringify(config).includes(MASTER_KEY), false);
   assert.equal(inspect(config, { depth: 10 }).includes(MASTER_KEY), false);
   assert.equal(Object.keys(config).includes('masterKey'), false);
+});
+
+test('ALERT_TELEGRAM_CHAT_ID accepts a numeric chat id or an @username and refuses anything else without echoing it', () => {
+  for (const accepted of ['123456789', '-1001234567890', '@ops_alerts']) {
+    assert.equal(loadAppConfig({ ...BASE, ALERT_TELEGRAM_CHAT_ID: accepted }).alertChatId, accepted);
+  }
+
+  for (const rejected of ['ops_alerts', '@ab', '12 34', '@ops alerts', 'https://t.me/ops', '1e9']) {
+    const error = problemsOf({ ...BASE, ALERT_TELEGRAM_CHAT_ID: rejected });
+    assert.ok(error.problems.some(problem => problem.startsWith('ALERT_TELEGRAM_CHAT_ID must be')), rejected);
+    assert.equal(error.problems.join(' ').includes(rejected), false, 'a configured value is never echoed');
+  }
 });

@@ -17,6 +17,7 @@ const CONNECT_PHASE_CODES = new Set(['UND_ERR_CONNECT_TIMEOUT', 'ERR_SOCKET_CONN
 const MAX_CAUSE_DEPTH = 4;
 const MAX_ERROR_LENGTH = 240;
 const MAX_RESPONSE_BODY_BYTES = 8_192;
+const MAX_RESPONSE_TEXT_BYTES = 2_000_000;
 const MAX_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const RESPONSE_LIFECYCLES = new WeakMap();
 
@@ -110,18 +111,34 @@ export async function fetchWithTimeout(fetchImpl, url, init = {}, dependencies =
 }
 
 /** Read and parse a provider response without buffering more than a small byte cap. */
-export async function readResponseBody(response, maxBytes = MAX_RESPONSE_BODY_BYTES) {
+export async function readResponseBody(response, maxBytes = MAX_RESPONSE_BODY_BYTES, byteCeiling = MAX_RESPONSE_BODY_BYTES) {
+  return withResponseLifecycle(response, signal => readResponseBodyBounded(response, maxBytes, signal, { byteCeiling }));
+}
+
+/**
+ * Read a text or HTML response (such as a public channel preview page) under the same timeout
+ * lifecycle and a larger, still bounded, byte cap. `text` is empty when the body is missing,
+ * oversized, or not valid UTF-8.
+ */
+export async function readResponseText(response, maxBytes = MAX_RESPONSE_TEXT_BYTES) {
+  return withResponseLifecycle(response, signal => readResponseBodyBounded(response, maxBytes, signal, {
+    byteCeiling: MAX_RESPONSE_TEXT_BYTES,
+    asText: true,
+  }));
+}
+
+async function withResponseLifecycle(response, read) {
   const lifecycle = response && typeof response === 'object' ? RESPONSE_LIFECYCLES.get(response) : null;
   try {
-    return await readResponseBodyBounded(response, maxBytes, lifecycle?.signal);
+    return await read(lifecycle?.signal);
   } finally {
     lifecycle?.cleanup();
     if (response && typeof response === 'object') RESPONSE_LIFECYCLES.delete(response);
   }
 }
 
-async function readResponseBodyBounded(response, maxBytes, signal) {
-  const byteLimit = normalizeResponseBodyLimit(maxBytes);
+async function readResponseBodyBounded(response, maxBytes, signal, { byteCeiling = MAX_RESPONSE_BODY_BYTES, asText = false } = {}) {
+  const byteLimit = normalizeResponseBodyLimit(maxBytes, byteCeiling);
   const body = response?.body;
   if (!body || typeof body.getReader !== 'function') {
     return { text: '', data: null, validJson: false };
@@ -163,6 +180,7 @@ async function readResponseBodyBounded(response, maxBytes, signal) {
   try {
     const bytes = joinChunks(chunks, totalBytes);
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    if (asText) return { text, data: null, validJson: false };
     return { text: '', data: JSON.parse(text), validJson: true };
   } catch {
     return invalidResponse();
@@ -514,10 +532,10 @@ function joinChunks(chunks, totalBytes) {
   return bytes;
 }
 
-function normalizeResponseBodyLimit(value) {
+function normalizeResponseBodyLimit(value, ceiling = MAX_RESPONSE_BODY_BYTES) {
   const bytes = Number(value);
-  if (!Number.isFinite(bytes) || bytes <= 0) return MAX_RESPONSE_BODY_BYTES;
-  return Math.max(1, Math.min(Math.floor(bytes), MAX_RESPONSE_BODY_BYTES));
+  if (!Number.isFinite(bytes) || bytes <= 0) return ceiling;
+  return Math.max(1, Math.min(Math.floor(bytes), ceiling));
 }
 
 function compactMeta(meta) {

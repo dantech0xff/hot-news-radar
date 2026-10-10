@@ -167,6 +167,48 @@ test('an ambiguous output is never resent automatically', async t => {
   assert.equal(env.runtime.getRun(first.runId).outputsFailed, 1);
 });
 
+test('a channel the engine cannot unblock is reported once to the alert chat', async t => {
+  const sent = [];
+  const env = await started(t, {
+    articles: [techArticle('rust-2', 'Rust 2.0 compiler ships async closures')],
+    outputResults: [AMBIGUOUS],
+    runtimeOptions: { alertChatId: '123456789' },
+  });
+  env.plugins.output.notify = async (chatId, text) => { sent.push({ chatId, text }); return true; };
+  await createActiveChannel(env.runtime, env.credentialIds);
+
+  await env.runtime.runNow('telegram-ops', OPERATOR, { wait: true });
+  // The run that creates the block cannot know yet whether the next run will confirm it.
+  assert.equal(sent.length, 0);
+
+  env.plugins.source.articles.push(techArticle('gpu', 'GPU kernels land in Linux 7.0'));
+  for (let run = 0; run < 2; run += 1) {
+    env.clock.advance(SCAN_INTERVAL_MS);
+    await env.runtime.runNow('telegram-ops', OPERATOR, { wait: true });
+  }
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, '123456789');
+  assert.match(sent[0].text, /telegram-ops/);
+  assert.match(sent[0].text, /Rust 2\.0 compiler ships async closures/);
+});
+
+test('without an alert chat a blocked channel stays quiet', async t => {
+  const sent = [];
+  const env = await started(t, {
+    articles: [techArticle('rust-2', 'Rust 2.0 compiler ships async closures')],
+    outputResults: [AMBIGUOUS],
+  });
+  env.plugins.output.notify = async (chatId, text) => { sent.push({ chatId, text }); return true; };
+  await createActiveChannel(env.runtime, env.credentialIds);
+
+  await env.runtime.runNow('telegram-ops', OPERATOR, { wait: true });
+  env.clock.advance(SCAN_INTERVAL_MS);
+  await env.runtime.runNow('telegram-ops', OPERATOR, { wait: true });
+
+  assert.equal(sent.length, 0);
+});
+
 test('stories already delivered today are not queued again', async t => {
   const env = await started(t, { articles: [techArticle('gpt-6', 'OpenAI ships GPT-6 for developers')] });
   await createActiveChannel(env.runtime, env.credentialIds);

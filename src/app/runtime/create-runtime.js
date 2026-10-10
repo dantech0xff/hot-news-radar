@@ -41,6 +41,7 @@ import { RuntimeLease } from '../db/runtime-lease.js';
 import { StatsRepository } from '../db/stats-repository.js';
 import { CredentialRepository } from '../secrets/credential-repository.js';
 import { ChannelStatusReader } from './channel-status.js';
+import { BlockedChannelAlerts } from './alerts.js';
 import { ContentSync } from './content-sync.js';
 import { ChannelControls, NEW_CHANNEL_PAUSE_REASON, SYSTEM_OPERATOR_ID } from './controls.js';
 import { assertCutoverReady } from './cutover-guard.js';
@@ -80,6 +81,8 @@ const MAX_OWNER_ID_LENGTH = 200;
  *   shutdownTimeoutMs?: number,
  *   contentScanRetentionDays?: number,
  *   runHistoryRetentionDays?: number,
+ *   alertChatId?: string|null,
+ *   alerts?: BlockedChannelAlerts,
  * }} options
  *   - `db`: migrated app database (`runAppMigrations`) shared with the delivery store.
  *   - `vault`: secret vault holding `APP_MASTER_KEY`; credentials are decrypted only to build channels.
@@ -89,6 +92,8 @@ const MAX_OWNER_ID_LENGTH = 200;
  *   - `channelFactories`: plugin constructors for sources/AI/output (tests inject fakes).
  *   - `contentScanRetentionDays` / `runHistoryRetentionDays`: from
  *     `CONTENT_SCAN_RETENTION_DAYS` (default 30) / `RUN_HISTORY_RETENTION_DAYS` (default 180).
+ *   - `alertChatId`: `ALERT_TELEGRAM_CHAT_ID`; when set, a channel blocked by an unconfirmed send is reported there.
+ *     `alerts` replaces the notifier (tests).
  * @returns {Promise<ContentRadarRuntime>}
  */
 export async function createRuntime({
@@ -108,6 +113,8 @@ export async function createRuntime({
   shutdownTimeoutMs,
   contentScanRetentionDays = DEFAULT_CONTENT_SCAN_RETENTION_DAYS,
   runHistoryRetentionDays = DEFAULT_RUN_HISTORY_RETENTION_DAYS,
+  alertChatId = null,
+  alerts = new BlockedChannelAlerts({ chatId: alertChatId, logger }),
 } = {}) {
   const storage = createNodeSqlStorage(db);
   const directory = resolveDataDir(dataDir);
@@ -157,6 +164,7 @@ export async function createRuntime({
     events,
     clock,
     logger,
+    alerts,
   });
   const retention = new RetentionJob({
     storage,

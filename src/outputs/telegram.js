@@ -16,9 +16,11 @@ import {
   successResult,
   withPartialMutation,
 } from './telegram-client.js';
+import { LOOKUP_REQUEST_TIMEOUT_MS, findPostByLink, isPublicUsername } from './telegram-preview.js';
 
 const CAPTION_MAX = 1024;
 const NEWS_CAPTION_MAX = 700;
+const GET_CHAT_MAX_BYTES = 65_536;
 
 /**
  * Telegram downloads a photo URL itself before it answers, so a slow image host can hold one request
@@ -93,6 +95,81 @@ export class TelegramOutput extends OutputPlugin {
     }
 
     return this._sendTextOnly(content, options.signal);
+  }
+
+  /**
+   * Look for the post of a single article in the channel's public preview, so an ambiguous send can be
+   * confirmed without being sent again. Needs a public channel; a private chat, a page that cannot be
+   * read, or any error resolves null (the output then stays ambiguous for an operator).
+   */
+  async findDelivered({ articles, since, until, signal } = {}) {
+    const url = Array.isArray(articles) && articles.length === 1 ? articles[0]?.url : null;
+    if (!url) return null;
+    try {
+      const username = await this._publicUsername(signal);
+      if (!username) return null;
+      return await findPostByLink({
+        username,
+        url,
+        since,
+        until,
+        fetchImpl: this._dependencies.fetchImpl,
+        dependencies: this._dependencies,
+        signal,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** The channel's public username: the configured `@name`, else whatever `getChat` reports. */
+  async _publicUsername(signal) {
+    const chatId = String(this._config.chatId ?? '');
+    if (chatId.startsWith('@')) return isPublicUsername(chatId.slice(1)) ? chatId.slice(1) : null;
+    const response = await fetchWithTimeout(
+      this._dependencies.fetchImpl,
+      `https://api.telegram.org/bot${this._config.botToken}/getChat`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: this._config.chatId }),
+        redirect: 'manual',
+        signal,
+      },
+      { ...this._dependencies, timeoutMs: LOOKUP_REQUEST_TIMEOUT_MS },
+    );
+    // A channel with a long description or pinned message can answer with far more than a send result.
+    const parsed = await readResponseBody(response, GET_CHAT_MAX_BYTES, GET_CHAT_MAX_BYTES);
+    const username = parsed.data?.result?.username;
+    return response?.ok && parsed.data?.ok === true && isPublicUsername(username) ? username : null;
+  }
+
+  /**
+   * Send a short plain-text notice to another chat through this output's bot, for example an operator
+   * alert. Best effort: it resolves false instead of throwing, and it refuses this output's own chat so
+   * a misconfigured alert can never post into the channel itself.
+   * @returns {Promise<boolean>} true when Telegram accepted the message
+   */
+  async notify(chatId, text, { signal } = {}) {
+    if (String(chatId) === String(this._config.chatId)) return false;
+    try {
+      const response = await fetchWithTimeout(
+        this._dependencies.fetchImpl,
+        `https://api.telegram.org/bot${this._config.botToken}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, this.maxLength), disable_web_page_preview: true }),
+          redirect: 'manual',
+          signal,
+        },
+        { ...this._dependencies, timeoutMs: LOOKUP_REQUEST_TIMEOUT_MS },
+      );
+      const parsed = await readResponseBody(response);
+      return response?.ok === true && parsed.data?.ok === true;
+    } catch {
+      return false;
+    }
   }
 
   async _sendTextOnly(content, signal) {

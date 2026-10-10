@@ -154,6 +154,7 @@ export async function startServer(env = process.env, dependencies = {}) {
       shutdownTimeoutMs: shutdownWaitMs,
       contentScanRetentionDays: config.retention.contentScanDays,
       runHistoryRetentionDays: config.retention.runHistoryDays,
+      alertChatId: config.alertChatId,
     });
     const seed = await runtime.seedDefaultChannels();
     if (seed.seeded) logger.log?.(`[App] Seeded ${seed.channelIds.join(', ')} (paused until an operator resumes it)`);

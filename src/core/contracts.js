@@ -226,6 +226,21 @@ export class OutputPlugin {
   async send(content, options = {}) { throw new Error('Not implemented'); }
 
   /**
+   * Optional. After a send ended ambiguous, look for proof that the post reached the destination so
+   * the engine can confirm it without sending again. Resolve `{ messageId }` only when the post is
+   * positively found; resolve null when it is absent or anything is uncertain. Must never mutate the
+   * destination, must not throw for an ordinary lookup failure, and should honor `signal`.
+   *
+   * @param {Object} query
+   * @param {ReadonlyArray<Article>} query.articles - Durable snapshot of what the attempt carried
+   * @param {Date} query.since - When the ambiguous attempt started
+   * @param {Date} [query.until] - When it ended; a post after this is not the send being checked
+   * @param {AbortSignal} [query.signal] - Cooperative lookup deadline
+   * @returns {Promise<{ messageId: string } | null>}
+   */
+  async findDelivered(query) { return null; }
+
+  /**
    * Max content length cho output này (dùng để split)
    * @returns {number}
    */

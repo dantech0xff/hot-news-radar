@@ -53,6 +53,7 @@ const EMAIL_PATTERN = /^[^\s@,]+@[^\s@,]+$/;
 const VISIBLE_ASCII = /^[\x21-\x7e]+$/;
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const HOST_PATTERN = /^[A-Za-z0-9.:_-]+$/;
+const ALERT_CHAT_PATTERN = /^(?:-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$/;
 
 /** One or more environment variables are missing or invalid. */
 export class AppConfigError extends Error {
@@ -158,6 +159,7 @@ export function loadAppConfig(env = process.env) {
   const runHistoryDays = readDays(read('RUN_HISTORY_RETENTION_DAYS'), 'RUN_HISTORY_RETENTION_DAYS',
     DEFAULT_RUN_HISTORY_RETENTION_DAYS, problems);
   const shutdownWaitSeconds = readShutdownWait(read('SHUTDOWN_WAIT_SECONDS'), problems);
+  const alertChatId = readAlertChatId(read('ALERT_TELEGRAM_CHAT_ID'), problems);
 
   const buildVersion = read('NEWS_BUILD_VERSION') || null;
   if (buildVersion && (buildVersion.length > MAX_VERSION_LENGTH || !VISIBLE_ASCII.test(buildVersion))) {
@@ -184,6 +186,7 @@ export function loadAppConfig(env = process.env) {
     roles: { operatorEmails, viewerEmails, serviceTokens },
     retention: { contentScanDays, runHistoryDays },
     shutdownWaitMs: shutdownWaitSeconds * 1_000,
+    alertChatId,
     buildVersion,
   };
   // Kept off the enumerable surface so logging or serializing the config never prints the key.
@@ -325,6 +328,15 @@ function readShutdownWait(value, problems) {
     return DEFAULT_SHUTDOWN_WAIT_SECONDS;
   }
   return seconds;
+}
+
+function readAlertChatId(value, problems) {
+  if (!value) return null;
+  if (!ALERT_CHAT_PATTERN.test(value)) {
+    problems.push('ALERT_TELEGRAM_CHAT_ID must be a numeric Telegram chat id or an @username.');
+    return null;
+  }
+  return value;
 }
 
 function splitList(value) {
